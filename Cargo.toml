@@ -1,0 +1,12 @@
+[package]
+name = "fivch_tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+reqwest = { version = "0.12", features = ["blocking"] }
+encoding_rs = "0.8"
+color-eyre = "0.6"
+regex-lite = "0.1"
