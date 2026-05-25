@@ -2,8 +2,9 @@ use crate::types::{AppState, Post, Screen};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+//use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 pub fn draw(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
@@ -100,41 +101,29 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &AppState) {
     let items: Vec<ListItem> = state
         .boards
         .iter()
-        .enumerate()
-        .map(|(i, board)| {
-            let is_selected = i == state.selected_index;
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::LightGreen)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            let prefix = if is_selected { " > " } else { "   " };
-            let board_name = if board.name.len() > area.width as usize - 5 {
-                format!(
-                    "{}...",
-                    &board.name[..area.width as usize - 8]
-                )
-            } else {
-                board.name.clone()
-            };
-            ListItem::new(Line::from(Span::styled(
-                format!("{}{}", prefix, board_name),
-                style,
-            )))
+        .map(|board| {
+            ListItem::new(board.name.clone())
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("板一覧")
-            .style(Style::default()),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(" > ")
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("板一覧"),
+        );
 
-    frame.render_widget(list, area);
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.selected_index));
+
+    frame.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
@@ -153,28 +142,7 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
     let items: Vec<ListItem> = state
         .threads
         .iter()
-        .enumerate()
-        .map(|(i, thread)| {
-            let is_selected = i == state.selected_index;
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::LightGreen)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            let prefix = if is_selected { " > " } else { "   " };
-            /*
-            let title = if thread.title.len() > area.width as usize - 15 {
-                format!(
-                    "{}...",
-                    &thread.title[..area.width as usize - 18]
-                )
-            } else {
-                thread.title.clone()
-            };
-            */
+        .map(|thread| {
             let max_chars = area.width as usize - 18;
 
             let title = if thread.title.chars().count() > max_chars {
@@ -185,22 +153,31 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
             } else {
                 thread.title.clone()
             };
-            ListItem::new(Line::from(Span::styled(
-                format!("{}{} ({}レス)", prefix, title, thread.post_count),
-                style,
-            )))
+
+            ListItem::new(format!("{} ({}レス)", title, thread.post_count))
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("スレ一覧")
-            .style(Style::default()),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(" > ")
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("スレ一覧"),
+        );
 
-    frame.render_widget(list, area);
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.selected_index));
+
+    frame.render_stateful_widget(list, area, &mut list_state);
 }
+
 
 fn draw_thread_view(frame: &mut Frame, area: Rect, state: &AppState) {
     if state.posts.is_empty() {
