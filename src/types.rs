@@ -42,6 +42,9 @@ pub struct AppState {
     pub loading: bool,
     pub status_message: String,
     pub thread_info: Option<String>,
+    pub search_query: String,
+    pub search_active: bool,
+    pub search_matches: Vec<usize>,
 }
 
 impl AppState {
@@ -60,6 +63,9 @@ impl AppState {
             loading: false,
             status_message: String::new(),
             thread_info: None,
+            search_query: String::new(),
+            search_active: false,
+            search_matches: Vec::new(),
         }
     }
 }

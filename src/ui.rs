@@ -9,18 +9,34 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 pub fn draw(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    let constraints = if state.search_active {
+        vec![
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(1),
             Constraint::Length(1),
-        ])
+        ]
+    } else {
+        vec![
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ]
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(area);
 
     draw_title_bar(frame, chunks[0], state);
-    draw_main(frame, chunks[1], state);
-    draw_status_bar(frame, chunks[2], state);
+    if state.search_active {
+        draw_search_bar(frame, chunks[1], state);
+        draw_main(frame, chunks[2], state);
+    } else {
+        draw_main(frame, chunks[1], state);
+    }
+    draw_status_bar(frame, chunks[if state.search_active { 3 } else { 2 }], state);
 }
 
 fn draw_title_bar(frame: &mut Frame, area: Rect, state: &AppState) {
@@ -65,6 +81,27 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(block, area);
 }
 
+fn draw_search_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+    let match_count = state.search_matches.len();
+    let total = match state.screen {
+        Screen::BoardList => state.boards.len(),
+        Screen::ThreadList => state.threads.len(),
+        Screen::ThreadView => state.posts.len(),
+    };
+    let info = if match_count == total {
+        format!("/{} ", state.search_query)
+    } else {
+        format!("/{} ({}件)", state.search_query, match_count)
+    };
+
+    let bar = Paragraph::new(Line::from(Span::styled(
+        info,
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    )))
+    .style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(bar, area);
+}
+
 fn draw_main(frame: &mut Frame, area: Rect, state: &AppState) {
     if state.loading {
         let loading = Paragraph::new("読み込み中...")
@@ -98,13 +135,27 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    let items: Vec<ListItem> = state
-        .boards
-        .iter()
-        .map(|board| {
-            ListItem::new(board.name.clone())
-        })
-        .collect();
+    let items: Vec<ListItem> = if state.search_active && !state.search_matches.is_empty() {
+        state
+            .search_matches
+            .iter()
+            .map(|&i| ListItem::new(state.boards[i].name.clone()))
+            .collect()
+    } else if !state.search_active {
+        state
+            .boards
+            .iter()
+            .map(|board| ListItem::new(board.name.clone()))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let title = if state.search_active {
+        format!("板一覧 ({}件)", state.search_matches.len())
+    } else {
+        "板一覧".to_string()
+    };
 
     let list = List::new(items)
         .highlight_style(
@@ -114,11 +165,7 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(" > ")
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("板一覧"),
-        );
+        .block(Block::default().borders(Borders::ALL).title(title));
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected_index));
@@ -139,24 +186,50 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    let items: Vec<ListItem> = state
-        .threads
-        .iter()
-        .map(|thread| {
-            let max_chars = area.width as usize - 18;
+    let items: Vec<ListItem> = if state.search_active && !state.search_matches.is_empty() {
+        state
+            .search_matches
+            .iter()
+            .map(|&i| {
+                let thread = &state.threads[i];
+                let max_chars = area.width as usize - 18;
+                let title = if thread.title.chars().count() > max_chars {
+                    format!(
+                        "{}...",
+                        thread.title.chars().take(max_chars).collect::<String>()
+                    )
+                } else {
+                    thread.title.clone()
+                };
+                ListItem::new(format!("{} ({}レス)", title, thread.post_count))
+            })
+            .collect()
+    } else if !state.search_active {
+        state
+            .threads
+            .iter()
+            .map(|thread| {
+                let max_chars = area.width as usize - 18;
+                let title = if thread.title.chars().count() > max_chars {
+                    format!(
+                        "{}...",
+                        thread.title.chars().take(max_chars).collect::<String>()
+                    )
+                } else {
+                    thread.title.clone()
+                };
+                ListItem::new(format!("{} ({}レス)", title, thread.post_count))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-            let title = if thread.title.chars().count() > max_chars {
-                format!(
-                    "{}...",
-                    thread.title.chars().take(max_chars).collect::<String>()
-                )
-            } else {
-                thread.title.clone()
-            };
-
-            ListItem::new(format!("{} ({}レス)", title, thread.post_count))
-        })
-        .collect();
+    let title = if state.search_active {
+        format!("スレ一覧 ({}件)", state.search_matches.len())
+    } else {
+        "スレ一覧".to_string()
+    };
 
     let list = List::new(items)
         .highlight_style(
@@ -166,11 +239,7 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(" > ")
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("スレ一覧"),
-        );
+        .block(Block::default().borders(Borders::ALL).title(title));
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected_index));
@@ -197,43 +266,93 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &AppState) {
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    let total = state.posts.len();
-    let info = format!(
-        " 1-{}/{} | ↑↓:スクロール | ←:戻る | q:終了",
-        total, total
-    );
-    let info_bar = Paragraph::new(Line::from(Span::styled(
-        info,
-        Style::default().fg(Color::Cyan),
-    )))
-    .style(Style::default().bg(Color::DarkGray));
-    frame.render_widget(info_bar, chunks[0]);
+    if state.search_active {
+        let total = state.posts.len();
+        let info = format!(
+            " 検索結果: {}件 / {}レス | ↑↓:移動 | Enter:決定",
+            state.search_matches.len(),
+            total,
+        );
+        let info_bar = Paragraph::new(Line::from(Span::styled(
+            info,
+            Style::default().fg(Color::Cyan),
+        )))
+        .style(Style::default().bg(Color::DarkGray));
+        frame.render_widget(info_bar, chunks[0]);
 
-    let visible_posts: Vec<String> = state
-        .posts
-        .iter()
-        .enumerate()
-        .map(|(i, post)| format_post(i + 1, post))
-        .collect();
+        let items: Vec<ListItem> = state
+            .search_matches
+            .iter()
+            .map(|&i| {
+                let post = &state.posts[i];
+                let first_line = post.body.lines().next().unwrap_or("");
+                let preview = if first_line.chars().count() > area.width as usize - 10 {
+                    format!(
+                        "{}...",
+                        first_line.chars().take(area.width as usize - 13).collect::<String>()
+                    )
+                } else {
+                    first_line.to_string()
+                };
+                ListItem::new(format!("#{} {}", i + 1, preview))
+            })
+            .collect();
 
-    let text: Text = visible_posts
-        .iter()
-        .map(|s| {
-            Line::from(Span::styled(s.as_str(), Style::default().fg(Color::White)))
-        })
-        .collect();
+        let list = List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(" > ")
+            .block(Block::default().borders(Borders::ALL));
+        let mut list_state = ListState::default();
+        list_state.select(Some(state.selected_index));
+        frame.render_stateful_widget(list, chunks[1], &mut list_state);
+    } else {
+        let total = state.posts.len();
+        let info = format!(
+            " 1-{}/{} | ↑↓:スクロール | ←:戻る | /:検索 | q:終了",
+            total, total
+        );
+        let info_bar = Paragraph::new(Line::from(Span::styled(
+            info,
+            Style::default().fg(Color::Cyan),
+        )))
+        .style(Style::default().bg(Color::DarkGray));
+        frame.render_widget(info_bar, chunks[0]);
 
-    let paragraph = Paragraph::new(text)
-        .scroll((state.scroll_offset as u16, 0))
-        .style(Style::default())
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default()),
-        )
-        .wrap(Wrap { trim: false });
+        let visible_posts: Vec<String> = state
+            .posts
+            .iter()
+            .enumerate()
+            .map(|(i, post)| format_post(i + 1, post))
+            .collect();
 
-    frame.render_widget(paragraph, chunks[1]);
+        // let text: Text = visible_posts
+        //     .iter()
+        //     .map(|s| {
+        //         Line::from(Span::styled(
+        //             s.as_str(),
+        //             Style::default().fg(Color::White),
+        //         ))
+        //     })
+        //     .collect();
+        let text = Text::from(visible_posts.join("\n"));
+
+        let paragraph = Paragraph::new(text)
+            .scroll((state.scroll_offset as u16, 0))
+            .style(Style::default())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default()),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, chunks[1]);
+    }
 }
 
 fn format_post(num: usize, post: &Post) -> String {
@@ -252,15 +371,19 @@ fn format_post(num: usize, post: &Post) -> String {
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
-    let help = match state.screen {
-        Screen::BoardList => {
-            " ↑↓:移動 | Enter:板を開く | r:再読み込み | q:終了 "
-        }
-        Screen::ThreadList => {
-            " ↑↓:移動 | Enter:スレを開く | r:再読み込み | ←:戻る | q:終了 "
-        }
-        Screen::ThreadView => {
-            " ↑↓:スクロール | ←:戻る | r:再読み込み | q:終了 "
+    let help = if state.search_active {
+        " 文字入力:検索 | Esc:終了 | Enter:決定 | ↑↓:移動 "
+    } else {
+        match state.screen {
+            Screen::BoardList => {
+                " ↑↓:移動 | Enter:板を開く | /:検索 | r:再読み込み | q:終了 "
+            }
+            Screen::ThreadList => {
+                " ↑↓:移動 | Enter:スレを開く | /:検索 | r:再読み込み | ←:戻る | q:終了 "
+            }
+            Screen::ThreadView => {
+                " ↑↓:スクロール | /:検索 | ←:戻る | r:再読み込み | q:終了 "
+            }
         }
     };
 

@@ -2,6 +2,92 @@ use crate::api;
 use crate::types::{AppState, Screen};
 
 impl AppState {
+    fn map_selected_index(&self) -> usize {
+        if self.search_active && !self.search_matches.is_empty() {
+            self.search_matches[self.selected_index.min(self.search_matches.len() - 1)]
+        } else {
+            self.selected_index
+        }
+    }
+
+    fn item_count(&self) -> usize {
+        if self.search_active && !self.search_matches.is_empty() {
+            self.search_matches.len()
+        } else {
+            match self.screen {
+                Screen::BoardList => self.boards.len(),
+                Screen::ThreadList => self.threads.len(),
+                Screen::ThreadView => self.posts.len(),
+            }
+        }
+    }
+
+    fn compute_matches(&self) -> Vec<usize> {
+        if self.search_query.is_empty() {
+            let len = match self.screen {
+                Screen::BoardList => self.boards.len(),
+                Screen::ThreadList => self.threads.len(),
+                Screen::ThreadView => self.posts.len(),
+            };
+            return (0..len).collect();
+        }
+        let q = self.search_query.to_lowercase();
+        match self.screen {
+            Screen::BoardList => self
+                .boards
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.name.to_lowercase().contains(&q))
+                .map(|(i, _)| i)
+                .collect(),
+            Screen::ThreadList => self
+                .threads
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.title.to_lowercase().contains(&q))
+                .map(|(i, _)| i)
+                .collect(),
+            Screen::ThreadView => self
+                .posts
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    p.body.to_lowercase().contains(&q) || p.name.to_lowercase().contains(&q)
+                })
+                .map(|(i, _)| i)
+                .collect(),
+        }
+    }
+
+    pub fn enter_search(&mut self) {
+        self.search_active = true;
+        self.search_query.clear();
+        self.search_matches = self.compute_matches();
+        self.selected_index = 0;
+    }
+
+    pub fn exit_search(&mut self) {
+        if self.search_active && !self.search_matches.is_empty() {
+            self.selected_index =
+                self.search_matches[self.selected_index.min(self.search_matches.len() - 1)];
+        }
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+    }
+
+    pub fn search_push_char(&mut self, c: char) {
+        self.search_query.push(c);
+        self.search_matches = self.compute_matches();
+        self.selected_index = 0;
+    }
+
+    pub fn search_pop_char(&mut self) {
+        self.search_query.pop();
+        self.search_matches = self.compute_matches();
+        self.selected_index = 0;
+    }
+
     pub fn load_boards(&mut self) {
         self.loading = true;
         self.status_message = "板一覧を読み込み中...".to_string();
@@ -21,7 +107,8 @@ impl AppState {
         if self.boards.is_empty() {
             return;
         }
-        let board = &self.boards[self.selected_index];
+        let idx = self.map_selected_index();
+        let board = &self.boards[idx];
         self.current_board = Some(board.name.clone());
         self.current_board_url = Some(board.url.clone());
         self.load_threads();
@@ -53,8 +140,9 @@ impl AppState {
         if self.threads.is_empty() {
             return;
         }
-        let thread_id = self.threads[self.selected_index].id.clone();
-        let thread_title = self.threads[self.selected_index].title.clone();
+        let idx = self.map_selected_index();
+        let thread_id = self.threads[idx].id.clone();
+        let thread_title = self.threads[idx].title.clone();
         self.current_thread_title = Some(thread_title);
         self.current_thread_id = Some(thread_id.clone());
         self.load_posts(&thread_id);
@@ -87,6 +175,10 @@ impl AppState {
     }
 
     pub fn go_back(&mut self) {
+        if self.search_active {
+            self.exit_search();
+            return;
+        }
         match self.screen {
             Screen::ThreadList => {
                 self.screen = Screen::BoardList;
@@ -109,11 +201,7 @@ impl AppState {
     }
 
     pub fn next_item(&mut self) {
-        let len = match self.screen {
-            Screen::BoardList => self.boards.len(),
-            Screen::ThreadList => self.threads.len(),
-            Screen::ThreadView => self.posts.len(),
-        };
+        let len = self.item_count();
         if len == 0 {
             return;
         }

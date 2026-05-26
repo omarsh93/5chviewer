@@ -27,27 +27,47 @@ fn main() -> Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, &state))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            if state.search_active {
+                match key.code {
+                    KeyCode::Esc => state.exit_search(),
+                    KeyCode::Enter => {
+                        state.exit_search();
+                        match state.screen {
+                            Screen::BoardList => state.select_board(),
+                            Screen::ThreadList => state.select_thread(),
+                            Screen::ThreadView => {}
+                        }
+                    }
+                    KeyCode::Backspace => state.search_pop_char(),
+                    KeyCode::Char('/') => state.exit_search(),
+                    KeyCode::Up | KeyCode::Char('k') => state.prev_item(),
+                    KeyCode::Down | KeyCode::Char('j') => state.next_item(),
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        state.exit_search();
+                    }
+                    KeyCode::Char(c) if !c.is_control() => state.search_push_char(c),
+                    _ => {}
+                }
+            } else {
                 match key.code {
                     KeyCode::Char('q') => break,
+                    KeyCode::Char('/') => state.enter_search(),
                     KeyCode::Enter => match state.screen {
                         Screen::BoardList => state.select_board(),
                         Screen::ThreadList => state.select_thread(),
                         Screen::ThreadView => {}
                     },
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        match state.screen {
-                            Screen::BoardList | Screen::ThreadList => state.prev_item(),
-                            Screen::ThreadView => state.scroll_up(),
-                        }
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        match state.screen {
-                            Screen::BoardList | Screen::ThreadList => state.next_item(),
-                            Screen::ThreadView => state.scroll_down(),
-                        }
-                    }
+                    KeyCode::Up | KeyCode::Char('k') => match state.screen {
+                        Screen::BoardList | Screen::ThreadList => state.prev_item(),
+                        Screen::ThreadView => state.scroll_up(),
+                    },
+                    KeyCode::Down | KeyCode::Char('j') => match state.screen {
+                        Screen::BoardList | Screen::ThreadList => state.next_item(),
+                        Screen::ThreadView => state.scroll_down(),
+                    },
                     KeyCode::Left | KeyCode::Char('h') | KeyCode::Backspace => {
                         state.go_back();
                     }
