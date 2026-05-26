@@ -64,6 +64,7 @@ impl AppState {
         self.search_query.clear();
         self.search_matches = self.compute_matches();
         self.selected_index = 0;
+        self.list_offset = 0;
     }
 
     pub fn exit_search(&mut self) {
@@ -74,6 +75,7 @@ impl AppState {
         self.search_active = false;
         self.search_query.clear();
         self.search_matches.clear();
+        self.list_offset = 0;
     }
 
     pub fn search_push_char(&mut self, c: char) {
@@ -119,6 +121,7 @@ impl AppState {
         self.status_message = "スレ一覧を読み込み中...".to_string();
         self.selected_index = 0;
         self.scroll_offset = 0;
+        self.list_offset = 0;
 
         if let Some(ref url) = self.current_board_url {
             match api::fetch_threads(url) {
@@ -153,6 +156,7 @@ impl AppState {
         self.status_message = "レスを読み込み中...".to_string();
         self.selected_index = 0;
         self.scroll_offset = 0;
+        self.list_offset = 0;
 
         if let Some(ref url) = self.current_board_url {
             match api::fetch_posts(url, thread_id) {
@@ -184,6 +188,7 @@ impl AppState {
                 self.screen = Screen::BoardList;
                 self.selected_index = 0;
                 self.scroll_offset = 0;
+                self.list_offset = 0;
                 self.current_board = None;
                 self.current_board_url = None;
             }
@@ -191,6 +196,7 @@ impl AppState {
                 self.screen = Screen::ThreadList;
                 self.selected_index = 0;
                 self.scroll_offset = 0;
+                self.list_offset = 0;
                 self.posts.clear();
                 self.current_thread_title = None;
                 self.current_thread_id = None;
@@ -208,11 +214,20 @@ impl AppState {
         if self.selected_index + 1 < len {
             self.selected_index += 1;
         }
+        if self.visible_items > 0 {
+            let max_offset = self.selected_index.saturating_sub(self.visible_items - 1);
+            if self.list_offset < max_offset {
+                self.list_offset = max_offset;
+            }
+        }
     }
 
     pub fn prev_item(&mut self) {
         if self.selected_index > 0 {
             self.selected_index -= 1;
+        }
+        if self.selected_index < self.list_offset {
+            self.list_offset = self.selected_index;
         }
     }
 

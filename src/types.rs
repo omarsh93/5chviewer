@@ -45,6 +45,8 @@ pub struct AppState {
     pub search_query: String,
     pub search_active: bool,
     pub search_matches: Vec<usize>,
+    pub list_offset: usize,
+    pub visible_items: usize,
 }
 
 impl AppState {
@@ -56,6 +58,8 @@ impl AppState {
             posts: Vec::new(),
             selected_index: 0,
             scroll_offset: 0,
+            list_offset: 0,
+            visible_items: 0,
             current_board: None,
             current_board_url: None,
             current_thread_title: None,

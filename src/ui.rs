@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::Frame;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-pub fn draw(frame: &mut Frame, state: &AppState) {
+pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
 
     let constraints = if state.search_active {
@@ -39,7 +39,7 @@ pub fn draw(frame: &mut Frame, state: &AppState) {
     draw_status_bar(frame, chunks[if state.search_active { 3 } else { 2 }], state);
 }
 
-fn draw_title_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_title_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let title = match state.screen {
         Screen::BoardList => " 5ちゃんねるびゅあ - 板一覧",
         Screen::ThreadList => {
@@ -81,7 +81,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(block, area);
 }
 
-fn draw_search_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_search_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let match_count = state.search_matches.len();
     let total = match state.screen {
         Screen::BoardList => state.boards.len(),
@@ -102,7 +102,7 @@ fn draw_search_bar(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(bar, area);
 }
 
-fn draw_main(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_main(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if state.loading {
         let loading = Paragraph::new("読み込み中...")
             .style(Style::default().fg(Color::Yellow))
@@ -122,7 +122,7 @@ fn draw_main(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 }
 
-fn draw_board_list(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_board_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if state.boards.is_empty() {
         let empty = Paragraph::new("板一覧が空です。'r' で再読み込み")
             .style(Style::default().fg(Color::Gray))
@@ -169,11 +169,13 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected_index));
+    *list_state.offset_mut() = state.list_offset;
+    state.visible_items = (area.height.saturating_sub(2)) as usize;
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_thread_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if state.threads.is_empty() {
         let empty = Paragraph::new("スレ一覧が空です。'r' で再読み込み")
             .style(Style::default().fg(Color::Gray))
@@ -243,12 +245,14 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected_index));
+    *list_state.offset_mut() = state.list_offset;
+    state.visible_items = (area.height.saturating_sub(2)) as usize;
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
 
-fn draw_thread_view(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if state.posts.is_empty() {
         let empty = Paragraph::new("レスがありません。'r' で再読み込み")
             .style(Style::default().fg(Color::Gray))
@@ -370,7 +374,7 @@ fn format_post(num: usize, post: &Post) -> String {
     format!("{}\n{}\n{}\n", sep, header, post.body)
 }
 
-fn draw_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let help = if state.search_active {
         " 文字入力:検索 | Esc:終了 | Enter:決定 | ↑↓:移動 "
     } else {

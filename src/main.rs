@@ -25,7 +25,7 @@ fn main() -> Result<()> {
     state.load_boards();
 
     loop {
-        terminal.draw(|f| ui::draw(f, &state))?;
+        terminal.draw(|f| ui::draw(f, &mut state))?;
 
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
