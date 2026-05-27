@@ -354,6 +354,7 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
         //         ))
         //     })
         //     .collect();
+        state.visible_items = (chunks[1].height.saturating_sub(2)) as usize;
         let text = Text::from(visible_posts.join("\n"));
 
         let paragraph = Paragraph::new(text)

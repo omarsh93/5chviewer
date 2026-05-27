@@ -306,9 +306,54 @@ impl AppState {
         }
     }
 
+    pub fn scroll_to_top(&mut self) {
+        self.scroll_offset = 0;
+    }
+
     pub fn scroll_to_bottom(&mut self) {
         if self.screen == crate::types::Screen::ThreadView {
-            self.scroll_offset = self.posts.len().saturating_sub(1);
+            let total_lines: usize = self.posts.iter().map(|p| p.body.lines().count() + 3).sum();
+            self.scroll_offset = total_lines.saturating_sub(1);
+        }
+    }
+
+    pub fn scroll_page_down(&mut self) {
+        let page = self.visible_items.max(1);
+        match self.screen {
+            Screen::BoardList | Screen::ThreadList => {
+                let len = self.item_count();
+                if len == 0 {
+                    return;
+                }
+                let new_index = (self.selected_index + page).min(len.saturating_sub(1));
+                self.selected_index = new_index;
+                let max_offset = self.selected_index.saturating_sub(page.saturating_sub(1));
+                if self.list_offset < max_offset {
+                    self.list_offset = max_offset;
+                }
+            }
+            Screen::ThreadView => {
+                self.scroll_offset = self.scroll_offset.saturating_add(page);
+            }
+            Screen::Compose => {}
+        }
+    }
+
+    pub fn scroll_page_up(&mut self) {
+        let page = self.visible_items.max(1);
+        match self.screen {
+            Screen::BoardList | Screen::ThreadList => {
+                if self.selected_index > 0 {
+                    self.selected_index = self.selected_index.saturating_sub(page);
+                }
+                if self.selected_index < self.list_offset {
+                    self.list_offset = self.selected_index;
+                }
+            }
+            Screen::ThreadView => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(page);
+            }
+            Screen::Compose => {}
         }
     }
 

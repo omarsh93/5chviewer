@@ -98,11 +98,28 @@ fn main() -> Result<()> {
                             state.toggle_favorite();
                         }
                     }
+                    KeyCode::Char('g') => {
+                        if state.screen == Screen::ThreadView {
+                            state.scroll_to_top();
+                        }
+                    }
                     KeyCode::Char('G') => {
                         if state.screen == Screen::ThreadView {
                             state.scroll_to_bottom();
                         }
                     }
+                    KeyCode::PageDown | KeyCode::Char(' ') => match state.screen {
+                        Screen::BoardList | Screen::ThreadList | Screen::ThreadView => {
+                            state.scroll_page_down()
+                        }
+                        Screen::Compose => {}
+                    },
+                    KeyCode::PageUp | KeyCode::Char('b') => match state.screen {
+                        Screen::BoardList | Screen::ThreadList | Screen::ThreadView => {
+                            state.scroll_page_up()
+                        }
+                        Screen::Compose => {}
+                    },
                     KeyCode::Char('r') => match state.screen {
                         Screen::BoardList => state.load_boards(),
                         Screen::ThreadList => state.load_threads(),
