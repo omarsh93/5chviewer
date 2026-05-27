@@ -1,17 +1,70 @@
 use crate::types::{Board, Post, ThreadItem};
 use encoding_rs::SHIFT_JIS;
 use regex_lite::Regex;
+use reqwest::cookie::Jar;
+use std::sync::{Arc, OnceLock};
+
+fn urlencode_sjis(s: &str) -> Vec<u8> {
+    let (encoded, _, _) = SHIFT_JIS.encode(s);
+    let encoded = encoded.into_owned();
+    let mut result = Vec::with_capacity(encoded.len());
+    for &byte in &encoded {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                result.push(byte);
+            }
+            b' ' => result.push(b'+'),
+            _ => {
+                result.push(b'%');
+                result.push(hex_char(byte >> 4));
+                result.push(hex_char(byte & 0x0F));
+            }
+        }
+    }
+    result
+}
+
+fn hex_char(v: u8) -> u8 {
+    match v {
+        0..=9 => b'0' + v,
+        _ => b'A' + v - 10,
+    }
+}
 
 const BBSMENU_URL: &str = "https://menu.5ch.io/bbsmenu.html";
 
-fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64)")
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+fn cookie_jar() -> &'static Arc<Jar> {
+    static JAR: OnceLock<Arc<Jar>> = OnceLock::new();
+    JAR.get_or_init(|| Arc::new(Jar::default()))
+}
 
-    let resp = client
+fn fetch_client() -> &'static reqwest::blocking::Client {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64)")
+            .cookie_provider(cookie_jar().clone())
+            .build()
+            .expect("Failed to create HTTP client")
+    })
+}
+
+fn post_client() -> &'static reqwest::blocking::Client {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64)")
+            .redirect(reqwest::redirect::Policy::none())
+            .cookie_provider(cookie_jar().clone())
+            .build()
+            .expect("Failed to create HTTP client")
+    })
+}
+
+fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let resp = fetch_client()
         .get(url)
         .send()
         .map_err(|e| format!("HTTP request error: {}", e))?;
@@ -188,4 +241,68 @@ pub fn fetch_posts(board_url: &str, thread_id: &str) -> Result<Vec<Post>, String
     }
 
     Ok(posts)
+}
+
+pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, message: &str) -> Result<(), String> {
+    let host = board_url
+        .trim_end_matches('/')
+        .split('/')
+        .nth(2)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Invalid board URL".to_string())?;
+
+    let board_name = board_url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Invalid board URL".to_string())?;
+
+    let url = format!("https://{}/test/bbs.cgi", host);
+
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let pairs = [
+        ("FROM", name),
+        ("mail", email),
+        ("MESSAGE", message),
+        ("bbs", board_name),
+        ("key", thread_id),
+        ("time", &time.to_string()),
+        ("submit", "書き込む"),
+        ("oekaki_thread1", ""),
+    ];
+
+    let mut body = Vec::new();
+    for (i, (key, value)) in pairs.iter().enumerate() {
+        if i > 0 {
+            body.push(b'&');
+        }
+        body.extend_from_slice(key.as_bytes());
+        body.push(b'=');
+        body.extend_from_slice(&urlencode_sjis(value));
+    }
+
+    let resp = post_client()
+        .post(&url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .map_err(|e| format!("送信エラー: {}", e))?;
+
+    let status = resp.status();
+    if status.is_redirection() || status.is_success() {
+        Ok(())
+    } else {
+        let text = resp.bytes().map(|b| decode_sjis(&b)).unwrap_or_default();
+        let error_msg = text
+            .lines()
+            .find(|l| l.contains("ERROR") || l.contains("エラー"))
+            .map(|l| l.chars().take(100).collect())
+            .unwrap_or_else(|| format!("HTTP error: {}", status));
+        Err(error_msg)
+    }
 }

@@ -25,7 +25,10 @@ pub enum Screen {
     BoardList,
     ThreadList,
     ThreadView,
+    Compose,
 }
+
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -47,6 +50,11 @@ pub struct AppState {
     pub search_matches: Vec<usize>,
     pub list_offset: usize,
     pub visible_items: usize,
+    pub compose_name: String,
+    pub compose_email: String,
+    pub compose_message: String,
+    pub compose_focus: usize,
+    pub favorites: HashSet<String>,
 }
 
 impl AppState {
@@ -70,6 +78,11 @@ impl AppState {
             search_query: String::new(),
             search_active: false,
             search_matches: Vec::new(),
+            compose_name: String::new(),
+            compose_email: "sage".to_string(),
+            compose_message: String::new(),
+            compose_focus: 0,
+            favorites: HashSet::new(),
         }
     }
 }

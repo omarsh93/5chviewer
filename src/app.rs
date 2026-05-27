@@ -18,6 +18,7 @@ impl AppState {
                 Screen::BoardList => self.boards.len(),
                 Screen::ThreadList => self.threads.len(),
                 Screen::ThreadView => self.posts.len(),
+                Screen::Compose => 0,
             }
         }
     }
@@ -28,6 +29,7 @@ impl AppState {
                 Screen::BoardList => self.boards.len(),
                 Screen::ThreadList => self.threads.len(),
                 Screen::ThreadView => self.posts.len(),
+                Screen::Compose => 0,
             };
             return (0..len).collect();
         }
@@ -56,6 +58,7 @@ impl AppState {
                 })
                 .map(|(i, _)| i)
                 .collect(),
+            Screen::Compose => Vec::new(),
         }
     }
 
@@ -90,12 +93,74 @@ impl AppState {
         self.selected_index = 0;
     }
 
+    fn favorites_path() -> std::path::PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = std::path::PathBuf::from(home);
+        path.push(".config");
+        path.push("5chviewer");
+        path
+    }
+
+    pub fn load_favorites(&mut self) {
+        let dir = Self::favorites_path();
+        let file = dir.join("favorites");
+        let content = match std::fs::read_to_string(&file) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        for line in content.lines() {
+            let line = line.trim();
+            if !line.is_empty() {
+                self.favorites.insert(line.to_string());
+            }
+        }
+    }
+
+    pub fn save_favorites(&self) {
+        let dir = Self::favorites_path();
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let file = dir.join("favorites");
+        let content = self.favorites.iter().cloned().collect::<Vec<_>>().join("\n");
+        let _ = std::fs::write(&file, content);
+    }
+
+    pub fn toggle_favorite(&mut self) {
+        if self.boards.is_empty() {
+            return;
+        }
+        let idx = self.map_selected_index();
+        let board_url = self.boards[idx].url.clone();
+        let board_name = self.boards[idx].name.clone();
+        if !self.favorites.insert(board_url.clone()) {
+            self.favorites.remove(&board_url);
+        }
+        self.save_favorites();
+        self.sort_boards_with_favorites();
+        self.selected_index = 0;
+        self.list_offset = 0;
+        let status = if self.favorites.contains(&board_url) { "追加" } else { "解除" };
+        self.status_message = format!("お気に入り{}: {}", status, board_name);
+    }
+
+    fn sort_boards_with_favorites(&mut self) {
+        let fav = &self.favorites;
+        self.boards.sort_by(|a, b| {
+            let a_fav = fav.contains(&a.url);
+            let b_fav = fav.contains(&b.url);
+            b_fav.cmp(&a_fav).then(a.name.cmp(&b.name))
+        });
+        self.search_matches = self.compute_matches();
+    }
+
     pub fn load_boards(&mut self) {
         self.loading = true;
         self.status_message = "板一覧を読み込み中...".to_string();
         match api::fetch_boards() {
             Ok(boards) => {
                 self.boards = boards;
+                self.sort_boards_with_favorites();
                 self.status_message = format!("{} 個の板を読み込みました", self.boards.len());
             }
             Err(e) => {
@@ -238,6 +303,100 @@ impl AppState {
     pub fn scroll_up(&mut self) {
         if self.scroll_offset > 0 {
             self.scroll_offset -= 1;
+        }
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        if self.screen == crate::types::Screen::ThreadView {
+            self.scroll_offset = self.posts.len().saturating_sub(1);
+        }
+    }
+
+    pub fn enter_compose(&mut self) {
+        if self.current_board_url.is_none() || self.current_thread_id.is_none() {
+            self.status_message = "スレが選択されていません".to_string();
+            return;
+        }
+        self.compose_name.clear();
+        self.compose_email = "sage".to_string();
+        self.compose_message.clear();
+        self.compose_focus = 0;
+        self.screen = Screen::Compose;
+        self.status_message = "Ctrl+S:送信 Esc:キャンセル".to_string();
+    }
+
+    pub fn exit_compose(&mut self) {
+        self.screen = Screen::ThreadView;
+        self.status_message.clear();
+    }
+
+    pub fn compose_cycle_focus(&mut self) {
+        self.compose_focus = (self.compose_focus + 1) % 3;
+    }
+
+    pub fn compose_insert_char(&mut self, c: char) {
+        match self.compose_focus {
+            0 => self.compose_name.push(c),
+            1 => self.compose_email.push(c),
+            2 => self.compose_message.push(c),
+            _ => {}
+        }
+    }
+
+    pub fn compose_delete_char(&mut self) {
+        match self.compose_focus {
+            0 => { self.compose_name.pop(); }
+            1 => { self.compose_email.pop(); }
+            2 => { self.compose_message.pop(); }
+            _ => {}
+        }
+    }
+
+    pub fn compose_newline(&mut self) {
+        if self.compose_focus == 2 {
+            self.compose_message.push('\n');
+        } else {
+            self.compose_cycle_focus();
+        }
+    }
+
+    pub fn send_post(&mut self) {
+        if self.compose_message.trim().is_empty() {
+            self.status_message = "メッセージが空です".to_string();
+            return;
+        }
+        let board_url = match self.current_board_url.clone() {
+            Some(u) => u,
+            None => {
+                self.status_message = "板URLが不明です".to_string();
+                return;
+            }
+        };
+        let thread_id = match self.current_thread_id.clone() {
+            Some(id) => id,
+            None => {
+                self.status_message = "スレIDが不明です".to_string();
+                return;
+            }
+        };
+        let name = self.compose_name.clone();
+        let email = self.compose_email.clone();
+        let message = self.compose_message.clone();
+
+        self.loading = true;
+        self.status_message = "送信中...".to_string();
+
+        match api::post_message(&board_url, &thread_id, &name, &email, &message) {
+            Ok(()) => {
+                self.status_message = "レスを送信しました".to_string();
+                self.loading = false;
+                self.exit_compose();
+                self.load_posts(&thread_id);
+            }
+            Err(e) => {
+                self.status_message = format!("送信エラー: {}", e);
+                self.loading = false;
+            }
         }
     }
 }

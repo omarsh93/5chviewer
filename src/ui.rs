@@ -54,6 +54,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 " 5ちゃんねるびゅあ - スレ一覧"
             }
         }
+        Screen::Compose => " 5ちゃんねるびゅあ - レス投稿",
         Screen::ThreadView => {
             if let Some(ref info) = state.thread_info {
                 let short = if info.len() > 50 {
@@ -87,6 +88,7 @@ fn draw_search_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
         Screen::BoardList => state.boards.len(),
         Screen::ThreadList => state.threads.len(),
         Screen::ThreadView => state.posts.len(),
+        Screen::Compose => 0,
     };
     let info = if match_count == total {
         format!("/{} ", state.search_query)
@@ -119,6 +121,7 @@ fn draw_main(frame: &mut Frame, area: Rect, state: &mut AppState) {
         Screen::BoardList => draw_board_list(frame, area, state),
         Screen::ThreadList => draw_thread_list(frame, area, state),
         Screen::ThreadView => draw_thread_view(frame, area, state),
+        Screen::Compose => draw_compose(frame, area, state),
     }
 }
 
@@ -135,17 +138,25 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
         return;
     }
 
+    let fav = &state.favorites;
     let items: Vec<ListItem> = if state.search_active && !state.search_matches.is_empty() {
         state
             .search_matches
             .iter()
-            .map(|&i| ListItem::new(state.boards[i].name.clone()))
+            .map(|&i| {
+                let board = &state.boards[i];
+                let star = if fav.contains(&board.url) { "★ " } else { "  " };
+                ListItem::new(format!("{}{}", star, board.name))
+            })
             .collect()
     } else if !state.search_active {
         state
             .boards
             .iter()
-            .map(|board| ListItem::new(board.name.clone()))
+            .map(|board| {
+                let star = if fav.contains(&board.url) { "★ " } else { "  " };
+                ListItem::new(format!("{}{}", star, board.name))
+            })
             .collect()
     } else {
         Vec::new()
@@ -317,7 +328,7 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
     } else {
         let total = state.posts.len();
         let info = format!(
-            " 1-{}/{} | ↑↓:スクロール | ←:戻る | /:検索 | q:終了",
+            " 1-{}/{} | ↑↓:スクロール | ←:戻る | /:検索 | w:書き込み | q:終了",
             total, total
         );
         let info_bar = Paragraph::new(Line::from(Span::styled(
@@ -359,6 +370,54 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
     }
 }
 
+fn draw_compose(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(3),
+        ])
+        .split(area);
+
+    let field_style = |focus: bool| -> Style {
+        if focus {
+            Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else {
+            Style::default().fg(Color::White)
+        }
+    };
+
+    let name_text = format!(" 名前: {} ", state.compose_name);
+    let name_bar = Paragraph::new(Line::from(Span::styled(
+        name_text,
+        field_style(state.compose_focus == 0),
+    )))
+    .block(Block::default().borders(Borders::ALL).title("名前"));
+    frame.render_widget(name_bar, chunks[0]);
+
+    let email_text = format!(" メール: {} ", state.compose_email);
+    let email_bar = Paragraph::new(Line::from(Span::styled(
+        email_text,
+        field_style(state.compose_focus == 1),
+    )))
+    .block(Block::default().borders(Borders::ALL).title("メール"));
+    frame.render_widget(email_bar, chunks[1]);
+
+    let message_text = if state.compose_message.is_empty() {
+        Text::styled(" ", field_style(state.compose_focus == 2))
+    } else {
+        Text::styled(
+            state.compose_message.clone(),
+            field_style(state.compose_focus == 2),
+        )
+    };
+    let message_block = Paragraph::new(message_text)
+        .block(Block::default().borders(Borders::ALL).title("メッセージ"))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(message_block, chunks[2]);
+}
+
 fn format_post(num: usize, post: &Post) -> String {
     let id_str = match &post.id {
         Some(id) => format!(" ID:{}", id),
@@ -380,13 +439,16 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     } else {
         match state.screen {
             Screen::BoardList => {
-                " ↑↓:移動 | Enter:板を開く | /:検索 | r:再読み込み | q:終了 "
+                " ↑↓:移動 | Enter:板を開く | /:検索 | f:お気に入り | r:再読み込み | q:終了 "
             }
             Screen::ThreadList => {
                 " ↑↓:移動 | Enter:スレを開く | /:検索 | r:再読み込み | ←:戻る | q:終了 "
             }
             Screen::ThreadView => {
-                " ↑↓:スクロール | /:検索 | ←:戻る | r:再読み込み | q:終了 "
+                " ↑↓:スクロール | /:検索 | ←:戻る | r:再読み込み | w:書き込み | q:終了 "
+            }
+            Screen::Compose => {
+                " Tab:項目移動 | Ctrl+S:送信 | Esc:キャンセル "
             }
         }
     };
