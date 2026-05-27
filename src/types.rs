@@ -55,6 +55,7 @@ pub struct AppState {
     pub compose_message: String,
     pub compose_focus: usize,
     pub favorites: HashSet<String>,
+    pub read_threads: HashSet<String>,
 }
 
 impl AppState {
@@ -83,6 +84,7 @@ impl AppState {
             compose_message: String::new(),
             compose_focus: 0,
             favorites: HashSet::new(),
+            read_threads: HashSet::new(),
         }
     }
 }

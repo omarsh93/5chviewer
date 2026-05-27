@@ -23,6 +23,7 @@ fn main() -> Result<()> {
 
     let mut state = AppState::new();
     state.load_favorites();
+    state.load_read_threads();
     state.load_boards();
 
     loop {
@@ -131,6 +132,11 @@ fn main() -> Result<()> {
                         }
                         Screen::Compose => {}
                     },
+                    KeyCode::Char('u') => {
+                        if state.screen == Screen::ThreadView {
+                            state.show_thread_url();
+                        }
+                    }
                     _ => {}
                 }
             }

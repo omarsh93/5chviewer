@@ -93,6 +93,38 @@ impl AppState {
         self.selected_index = 0;
     }
 
+    fn data_path() -> std::path::PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = std::path::PathBuf::from(home);
+        path.push(".config");
+        path.push("5chviewer");
+        path
+    }
+
+    pub fn load_read_threads(&mut self) {
+        let file = Self::data_path().join("read_threads");
+        let content = match std::fs::read_to_string(&file) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        for line in content.lines() {
+            let line = line.trim();
+            if !line.is_empty() {
+                self.read_threads.insert(line.to_string());
+            }
+        }
+    }
+
+    pub fn save_read_threads(&self) {
+        let dir = Self::data_path();
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let file = dir.join("read_threads");
+        let content = self.read_threads.iter().cloned().collect::<Vec<_>>().join("\n");
+        let _ = std::fs::write(&file, content);
+    }
+
     fn favorites_path() -> std::path::PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = std::path::PathBuf::from(home);
@@ -144,6 +176,18 @@ impl AppState {
         self.status_message = format!("お気に入り{}: {}", status, board_name);
     }
 
+    fn sort_threads_with_read(&mut self) {
+        let read = &self.read_threads;
+        let board_url = self.current_board_url.as_deref().unwrap_or("");
+        self.threads.sort_by(|a, b| {
+            let a_key = format!("{}|{}", board_url, a.id);
+            let b_key = format!("{}|{}", board_url, b.id);
+            let a_read = read.contains(&a_key);
+            let b_read = read.contains(&b_key);
+            b_read.cmp(&a_read)
+        });
+    }
+
     fn sort_boards_with_favorites(&mut self) {
         let fav = &self.favorites;
         self.boards.sort_by(|a, b| {
@@ -192,6 +236,7 @@ impl AppState {
             match api::fetch_threads(url) {
                 Ok(threads) => {
                     self.threads = threads;
+                    self.sort_threads_with_read();
                     self.status_message =
                         format!("{} 個のスレを読み込みました", self.threads.len());
                 }
@@ -211,6 +256,10 @@ impl AppState {
         let idx = self.map_selected_index();
         let thread_id = self.threads[idx].id.clone();
         let thread_title = self.threads[idx].title.clone();
+        if let Some(ref board_url) = self.current_board_url {
+            self.read_threads.insert(format!("{}|{}", board_url, thread_id));
+            self.save_read_threads();
+        }
         self.current_thread_title = Some(thread_title);
         self.current_thread_id = Some(thread_id.clone());
         self.load_posts(&thread_id);
@@ -354,6 +403,14 @@ impl AppState {
                 self.scroll_offset = self.scroll_offset.saturating_sub(page);
             }
             Screen::Compose => {}
+        }
+    }
+
+    pub fn show_thread_url(&mut self) {
+        if let (Some(board_url), Some(thread_id)) = (&self.current_board_url, &self.current_thread_id) {
+            let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("");
+            let board_name = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+            self.status_message = format!("https://{}/test/read.cgi/{}/{}", host, board_name, thread_id);
         }
     }
 
