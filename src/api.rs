@@ -2,6 +2,9 @@ use crate::types::{Board, Post, ThreadItem};
 use encoding_rs::SHIFT_JIS;
 use regex_lite::Regex;
 use reqwest::cookie::Jar;
+use reqwest::cookie::CookieStore;
+use reqwest::Url;
+use std::io::Write;
 use std::sync::{Arc, OnceLock};
 
 fn urlencode_sjis(s: &str) -> Vec<u8> {
@@ -52,11 +55,11 @@ fn fetch_client() -> &'static reqwest::blocking::Client {
 
 fn post_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    //.redirect(reqwest::redirect::Policy::none())
     CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64)")
-            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0")
             .cookie_provider(cookie_jar().clone())
             .build()
             .expect("Failed to create HTTP client")
@@ -258,7 +261,7 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Invalid board URL".to_string())?;
 
-    let url = format!("https://{}/test/bbs.cgi", host);
+    let url = format!("https://{}/test/bbs.cgi?guid=ON", host);
 
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -286,12 +289,46 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
         body.extend_from_slice(&urlencode_sjis(value));
     }
 
+    // debug
+    {
+        let url4cookie = Url::parse(&url).unwrap();
+        if let Some(c) = cookie_jar().cookies(&url4cookie) {
+            println!("{:?}", c);
+        }
+    }
+
     let resp = post_client()
         .post(&url)
         .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Origin", &format!("https://{}", host))
+        .header("Referer", &url)
         .body(body)
         .send()
         .map_err(|e| format!("送信エラー: {}", e))?;
+
+    // debug
+    {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/5chviewer.log")
+        {
+            let status = resp.status();
+            let _ = writeln!(f, "=== Response Headers ===");
+            let _ = writeln!(f, "status = {}", status);
+            for (key, value) in resp.headers() {
+                let _ = writeln!(f, "{}: {}", key, value.to_str().unwrap_or("<non-utf8>"));
+            }
+        }
+    }
+
+    // debug
+    {
+        let url4cookie = Url::parse(&url).unwrap();
+        if let Some(c) = cookie_jar().cookies(&url4cookie) {
+            println!("{:?}", c);
+        }
+    }
 
     let status = resp.status();
     if status.is_redirection() || status.is_success() {
