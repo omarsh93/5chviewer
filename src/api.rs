@@ -6,6 +6,7 @@ use reqwest::cookie::CookieStore;
 use reqwest::Url;
 use std::io::Write;
 use std::sync::{Arc, OnceLock};
+use scraper::{Html, Selector};
 
 fn urlencode_sjis(s: &str) -> Vec<u8> {
     let (encoded, _, _) = SHIFT_JIS.encode(s);
@@ -279,6 +280,49 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
         ("oekaki_thread1", ""),
     ];
 
+    let body = encode_body(&pairs);
+
+    let referer = format!("https://{}/test/bbs.cgi", host);
+
+    let resp = post_with_headers(&url, &host, &referer, body, false)?;
+
+    let status = resp.status();
+    /*
+    if status.is_redirection() || status.is_success() {
+        return Ok(());
+    }
+    */
+    if ! status.is_success() {
+        let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+        let text = decode_sjis(&bytes);
+        let error_msg = extract_error(&text, status);
+        return Err(error_msg);
+    }
+
+    let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+    let text = decode_sjis(&bytes);
+    let feature = extract_feature(&text);
+
+    if let Some(fv) = feature {
+        let mut pairs_with_feature: Vec<(&str, &str)> = pairs.to_vec();
+        pairs_with_feature.push(("feature", &fv));
+        let body = encode_body(&pairs_with_feature);
+        let resp = post_with_headers(&url, &host, &referer, body, true)?;
+        let status = resp.status();
+        if status.is_redirection() || status.is_success() {
+            return Ok(());
+        }
+        let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+        let text = decode_sjis(&bytes);
+        let error_msg = extract_error(&text, status);
+        return Err(error_msg);
+    }
+
+    let error_msg = extract_error(&text, status);
+    Err(error_msg)
+}
+
+fn encode_body(pairs: &[(&str, &str)]) -> Vec<u8> {
     let mut body = Vec::new();
     for (i, (key, value)) in pairs.iter().enumerate() {
         if i > 0 {
@@ -288,20 +332,24 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
         body.push(b'=');
         body.extend_from_slice(&urlencode_sjis(value));
     }
+    body
+}
 
-    // debug
-    {
-        let url4cookie = Url::parse(&url).unwrap();
-        if let Some(c) = cookie_jar().cookies(&url4cookie) {
-            println!("{:?}", c);
-        }
-    }
-
+fn post_with_headers(url: &str, host: &str, referer: &str, body: Vec<u8>, repost: bool) -> Result<reqwest::blocking::Response, String> {
     let resp = post_client()
-        .post(&url)
+        .post(url)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Origin", &format!("https://{}", host))
-        .header("Referer", &url)
+        .header("Priority", "u=0, i")
+        .header("Referer", referer)
+        .header("Sec-Fetch-Dest", "document")
+        .header("Sec-Fetch-Mode", "navigate")
+        .header("Sec-Fetch-Site", "same-origin")
+        .header("Sec-Fetch-User", "?1")
+        .header("TE", "trailers")
+        .header("Upgrade-Insecure-Requests", "1")
         .body(body)
         .send()
         .map_err(|e| format!("送信エラー: {}", e))?;
@@ -314,7 +362,7 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
             .open("/tmp/5chviewer.log")
         {
             let status = resp.status();
-            let _ = writeln!(f, "=== Response Headers ===");
+            let _ = writeln!(f, "=== Response Headers (repost={}) ===", repost);
             let _ = writeln!(f, "status = {}", status);
             for (key, value) in resp.headers() {
                 let _ = writeln!(f, "{}: {}", key, value.to_str().unwrap_or("<non-utf8>"));
@@ -324,22 +372,37 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
 
     // debug
     {
-        let url4cookie = Url::parse(&url).unwrap();
+        let url4cookie = Url::parse(url).unwrap();
         if let Some(c) = cookie_jar().cookies(&url4cookie) {
             println!("{:?}", c);
         }
     }
 
-    let status = resp.status();
-    if status.is_redirection() || status.is_success() {
-        Ok(())
-    } else {
-        let text = resp.bytes().map(|b| decode_sjis(&b)).unwrap_or_default();
-        let error_msg = text
-            .lines()
-            .find(|l| l.contains("ERROR") || l.contains("エラー"))
-            .map(|l| l.chars().take(100).collect())
-            .unwrap_or_else(|| format!("HTTP error: {}", status));
-        Err(error_msg)
-    }
+    Ok(resp)
+}
+
+/*
+fn extract_feature(html: &str) -> Option<String> {
+    let re = Regex::new(r#"<input\s+type="hidden"\s+name="feature"\s+value="([^"]*)"#).ok()?;
+    re.captures(html)?.get(1).map(|m| m.as_str().to_string())
+}
+*/
+
+fn extract_feature(html: &str) -> Option<String> {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse(r#"input[name="feature"]"#).ok()?;
+
+    document
+        .select(&selector)
+        .next()?
+        .value()
+        .attr("value")
+        .map(str::to_string)
+}
+
+fn extract_error(text: &str, status: reqwest::StatusCode) -> String {
+    text.lines()
+        .find(|l| l.contains("ERROR") || l.contains("エラー"))
+        .map(|l| l.chars().take(100).collect())
+        .unwrap_or_else(|| format!("HTTP error: {}", status))
 }
