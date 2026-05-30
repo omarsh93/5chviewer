@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod types;
 mod ui;
+mod debug;
 
 use crate::types::{AppState, Screen};
 use color_eyre::Result;
@@ -11,6 +12,7 @@ use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 fn main() -> Result<()> {
+    debug::log("main() start!");
     color_eyre::install()?;
 
     enable_raw_mode()?;

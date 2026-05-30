@@ -8,6 +8,7 @@ use reqwest::Url;
 use std::io::Write;
 use std::sync::{Arc, OnceLock, RwLock};
 use scraper::{Html, Selector};
+use crate::debug;
 
 fn urlencode_sjis(s: &str) -> Vec<u8> {
     let (encoded, _, _) = SHIFT_JIS.encode(s);
@@ -363,11 +364,6 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
     let resp = post_with_headers(&url, &host, &referer, body, false)?;
 
     let status = resp.status();
-    /*
-    if status.is_redirection() || status.is_success() {
-        return Ok(());
-    }
-    */
     if ! status.is_success() {
         let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
         let text = decode_sjis(&bytes);
@@ -377,11 +373,19 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
 
     let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
     let text = decode_sjis(&bytes);
-    let feature = extract_feature(&text);
+    let title = extract_title(&text);
 
-    if let Some(fv) = feature {
+    if title == "書きこみました。" {
+        debug::log("===書き込みました。");
+        return Ok(());
+    }
+
+    if title == "■ 書き込み確認 ■" {
+        let feature = extract_feature(&text)
+            .ok_or_else(|| "確認画面でfeatureが見つかりませんでした".to_string())?;
+
         let mut pairs_with_feature: Vec<(&str, &str)> = pairs.to_vec();
-        pairs_with_feature.push(("feature", &fv));
+        pairs_with_feature.push(("feature", &feature));
         let body = encode_body(&pairs_with_feature);
         let resp = post_with_headers(&url, &host, &referer, body, true)?;
         let status = resp.status();
@@ -430,6 +434,7 @@ fn post_with_headers(url: &str, host: &str, referer: &str, body: Vec<u8>, repost
         .send()
         .map_err(|e| format!("送信エラー: {}", e))?;
 
+    /*
     // debug
     {
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -445,6 +450,8 @@ fn post_with_headers(url: &str, host: &str, referer: &str, body: Vec<u8>, repost
             }
         }
     }
+    */
+    debug::response_headers(&resp, repost);
 
     // debug
     {
@@ -463,6 +470,18 @@ fn extract_feature(html: &str) -> Option<String> {
     re.captures(html)?.get(1).map(|m| m.as_str().to_string())
 }
 */
+
+fn extract_title(html: &str) -> String {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("title").ok();
+    if let Some(sel) = selector {
+        if let Some(element) = document.select(&sel).next() {
+            let text: String = element.text().collect();
+            return text.trim().to_string();
+        }
+    }
+    String::new()
+}
 
 fn extract_feature(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
