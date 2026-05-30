@@ -281,11 +281,9 @@ impl AppState {
     }
 
     fn threads_cache_path(board_url: &str) -> std::path::PathBuf {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        board_url.hash(&mut hasher);
-        let hash = format!("{:016x}", hasher.finish());
-        Self::favorites_path().join("threads").join(hash)
+        let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("unknown_host");
+        let board = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("unknown_board");
+        Self::favorites_path().join("threads").join(host).join(board)
     }
 
     fn load_threads_from_cache(&mut self) -> bool {
@@ -396,11 +394,9 @@ impl AppState {
     }
 
     fn posts_cache_path(board_url: &str, thread_id: &str) -> std::path::PathBuf {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        (board_url.to_string() + "|" + thread_id).hash(&mut hasher);
-        let hash = format!("{:016x}", hasher.finish());
-        Self::favorites_path().join("posts").join(hash)
+        let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("unknown_host");
+        let board = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("unknown_board");
+        Self::favorites_path().join("posts").join(host).join(board).join(thread_id)
     }
 
     fn load_posts_from_cache(&mut self) -> bool {
