@@ -1,5 +1,5 @@
 use crate::api;
-use crate::types::{AppState, Screen};
+use crate::types::{AppState, Board, Post, Screen, ThreadItem};
 
 impl AppState {
     fn map_selected_index(&self) -> usize {
@@ -198,13 +198,68 @@ impl AppState {
         self.search_matches = self.compute_matches();
     }
 
+    fn boards_cache_path() -> std::path::PathBuf {
+        Self::favorites_path().join("boards")
+    }
+
+    fn load_boards_from_cache(&mut self) -> bool {
+        let path = Self::boards_cache_path();
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let mut boards = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(sep) = line.find('|') {
+                let url = line[..sep].to_string();
+                let name = line[sep + 1..].to_string();
+                boards.push(Board { name, url });
+            }
+        }
+        if boards.is_empty() {
+            return false;
+        }
+        self.boards = boards;
+        self.sort_boards_with_favorites();
+        self.status_message = format!("{} 個の板を読み込みました", self.boards.len());
+        true
+    }
+
+    fn save_boards_cache(&self) {
+        let path = Self::boards_cache_path();
+        let _ = std::fs::create_dir_all(Self::favorites_path());
+        let content: String = self
+            .boards
+            .iter()
+            .map(|b| format!("{}|{}", b.url, b.name))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = std::fs::write(&path, content);
+    }
+
     pub fn load_boards(&mut self) {
+        if self.load_boards_from_cache() {
+            return;
+        }
+        self.fetch_boards_from_server();
+    }
+
+    pub fn reload_boards(&mut self) {
+        self.fetch_boards_from_server();
+    }
+
+    fn fetch_boards_from_server(&mut self) {
         self.loading = true;
         self.status_message = "板一覧を読み込み中...".to_string();
         match api::fetch_boards() {
             Ok(boards) => {
                 self.boards = boards;
                 self.sort_boards_with_favorites();
+                self.save_boards_cache();
                 self.status_message = format!("{} 個の板を読み込みました", self.boards.len());
             }
             Err(e) => {
@@ -225,18 +280,93 @@ impl AppState {
         self.load_threads();
     }
 
+    fn threads_cache_path(board_url: &str) -> std::path::PathBuf {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        board_url.hash(&mut hasher);
+        let hash = format!("{:016x}", hasher.finish());
+        Self::favorites_path().join("threads").join(hash)
+    }
+
+    fn load_threads_from_cache(&mut self) -> bool {
+        let url = match self.current_board_url {
+            Some(ref url) => url.clone(),
+            None => return false,
+        };
+        let path = Self::threads_cache_path(&url);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let mut threads = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(sep) = line.find('|') {
+                let id = line[..sep].to_string();
+                let rest = &line[sep + 1..];
+                if let Some(sep2) = rest.rfind('|') {
+                    let title = rest[..sep2].to_string();
+                    let count: u32 = rest[sep2 + 1..].parse().unwrap_or(0);
+                    threads.push(ThreadItem { id, title, post_count: count });
+                }
+            }
+        }
+        if threads.is_empty() {
+            return false;
+        }
+        self.threads = threads;
+        self.sort_threads_with_read();
+        self.status_message = format!("{} 個のスレを読み込みました", self.threads.len());
+        true
+    }
+
+    fn save_threads_cache(&self) {
+        let url = match self.current_board_url {
+            Some(ref url) => url,
+            None => return,
+        };
+        let path = Self::threads_cache_path(url);
+        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        let content: String = self
+            .threads
+            .iter()
+            .map(|t| format!("{}|{}|{}", t.id, t.title, t.post_count))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = std::fs::write(&path, content);
+    }
+
     pub fn load_threads(&mut self) {
-        self.loading = true;
-        self.status_message = "スレ一覧を読み込み中...".to_string();
         self.selected_index = 0;
         self.scroll_offset = 0;
         self.list_offset = 0;
+        if self.load_threads_from_cache() {
+            self.screen = Screen::ThreadList;
+            return;
+        }
+        self.fetch_threads_from_server();
+    }
+
+    pub fn reload_threads(&mut self) {
+        self.selected_index = 0;
+        self.scroll_offset = 0;
+        self.list_offset = 0;
+        self.fetch_threads_from_server();
+    }
+
+    fn fetch_threads_from_server(&mut self) {
+        self.loading = true;
+        self.status_message = "スレ一覧を読み込み中...".to_string();
 
         if let Some(ref url) = self.current_board_url {
             match api::fetch_threads(url) {
                 Ok(threads) => {
                     self.threads = threads;
                     self.sort_threads_with_read();
+                    self.save_threads_cache();
                     self.status_message =
                         format!("{} 個のスレを読み込みました", self.threads.len());
                 }
@@ -265,18 +395,123 @@ impl AppState {
         self.load_posts(&thread_id);
     }
 
+    fn posts_cache_path(board_url: &str, thread_id: &str) -> std::path::PathBuf {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (board_url.to_string() + "|" + thread_id).hash(&mut hasher);
+        let hash = format!("{:016x}", hasher.finish());
+        Self::favorites_path().join("posts").join(hash)
+    }
+
+    fn load_posts_from_cache(&mut self) -> bool {
+        let url = match self.current_board_url {
+            Some(ref url) => url.clone(),
+            None => return false,
+        };
+        let tid = match self.current_thread_id {
+            Some(ref id) => id.clone(),
+            None => return false,
+        };
+        let path = Self::posts_cache_path(&url, &tid);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let mut posts = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = line.split("<>").collect();
+            if parts.len() >= 4 {
+                let name = parts[0].trim().to_string();
+                let email = parts[1].trim().to_string();
+                let date_id = parts[2].trim().to_string();
+                let body = parts[3..].join("<>");
+                let body = body.replace("<br>", "\n");
+                let (date, id) = if let Some(idx) = date_id.find(" ID:") {
+                    let d = date_id[..idx].trim().to_string();
+                    let i = date_id[idx + 4..].trim().to_string();
+                    (d, Some(i))
+                } else {
+                    (date_id, None)
+                };
+                posts.push(Post { name, email, date, body, id });
+            }
+        }
+        if posts.is_empty() {
+            return false;
+        }
+        let count = posts.len();
+        self.posts = posts;
+        self.thread_info = self
+            .current_thread_title
+            .as_ref()
+            .map(|t| format!("{} ({}レス)", t, count));
+        self.status_message = format!("{} レスを読み込みました", count);
+        true
+    }
+
+    fn save_posts_cache(&self) {
+        let url = match self.current_board_url {
+            Some(ref url) => url,
+            None => return,
+        };
+        let tid = match self.current_thread_id {
+            Some(ref id) => id,
+            None => return,
+        };
+        let path = Self::posts_cache_path(url, tid);
+        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        let content: String = self
+            .posts
+            .iter()
+            .map(|p| {
+                let id_str = match &p.id {
+                    Some(id) => format!(" ID:{}", id),
+                    None => String::new(),
+                };
+                let body = p.body.replace('\n', "<br>");
+                format!("{}<>{}<>{}<>{}{}", p.name, p.email, p.date, id_str, body)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = std::fs::write(&path, content);
+    }
+
     pub fn load_posts(&mut self, thread_id: &str) {
-        self.loading = true;
-        self.status_message = "レスを読み込み中...".to_string();
+        self.current_thread_id = Some(thread_id.to_string());
         self.selected_index = 0;
         self.scroll_offset = 0;
         self.list_offset = 0;
+        if self.load_posts_from_cache() {
+            self.screen = Screen::ThreadView;
+            return;
+        }
+        self.fetch_posts_from_server();
+    }
 
+    pub fn reload_posts(&mut self) {
+        self.selected_index = 0;
+        self.scroll_offset = 0;
+        self.list_offset = 0;
+        self.fetch_posts_from_server();
+    }
+
+    fn fetch_posts_from_server(&mut self) {
+        let tid = match self.current_thread_id {
+            Some(ref id) => id.clone(),
+            None => return,
+        };
+        self.loading = true;
+        self.status_message = "レスを読み込み中...".to_string();
         if let Some(ref url) = self.current_board_url {
-            match api::fetch_posts(url, thread_id) {
+            match api::fetch_posts(url, &tid) {
                 Ok(posts) => {
                     let count = posts.len();
                     self.posts = posts;
+                    self.save_posts_cache();
                     self.thread_info = self
                         .current_thread_title
                         .as_ref()

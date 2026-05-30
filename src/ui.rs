@@ -1,4 +1,5 @@
 use crate::types::{AppState, Post, Screen};
+use crate::image;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -338,24 +339,13 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
         .style(Style::default().bg(Color::DarkGray));
         frame.render_widget(info_bar, chunks[0]);
 
-        let visible_posts: Vec<String> = state
-            .posts
-            .iter()
-            .enumerate()
-            .map(|(i, post)| format_post(i + 1, post))
-            .collect();
-
-        // let text: Text = visible_posts
-        //     .iter()
-        //     .map(|s| {
-        //         Line::from(Span::styled(
-        //             s.as_str(),
-        //             Style::default().fg(Color::White),
-        //         ))
-        //     })
-        //     .collect();
+        let content_width = chunks[1].width.saturating_sub(2);
+        let mut all_lines: Vec<Line<'static>> = Vec::new();
+        for (i, post) in state.posts.iter().enumerate() {
+            all_lines.extend(format_post(i + 1, post, content_width));
+        }
         state.visible_items = (chunks[1].height.saturating_sub(2)) as usize;
-        let text = Text::from(visible_posts.join("\n"));
+        let text = Text::from(all_lines);
 
         let paragraph = Paragraph::new(text)
             .scroll((state.scroll_offset as u16, 0))
@@ -419,7 +409,9 @@ fn draw_compose(frame: &mut Frame, area: Rect, state: &mut AppState) {
     frame.render_widget(message_block, chunks[2]);
 }
 
-fn format_post(num: usize, post: &Post) -> String {
+fn format_post(num: usize, post: &Post, content_width: u16) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+
     let id_str = match &post.id {
         Some(id) => format!(" ID:{}", id),
         None => String::new(),
@@ -431,7 +423,26 @@ fn format_post(num: usize, post: &Post) -> String {
     };
     let header = format!("{}{} 名前:{} {} {}", num, email_str, post.name, post.date, id_str);
     let sep = "-".repeat(header.len().min(60));
-    format!("{}\n{}\n{}\n", sep, header, post.body)
+
+    lines.push(Line::from(sep));
+    lines.push(Line::from(header));
+
+    for body_line in post.body.lines() {
+        /*
+        if let Some(img_url) = image::find_image_url(body_line)
+            && let Some(path) = image::download_image(&img_url)
+            && let Some(img_lines) = image::render_image(&path, content_width)
+        {
+            lines.extend(img_lines);
+        } else {
+            lines.push(Line::from(body_line.to_string()));
+        }
+        */
+        lines.push(Line::from(body_line.to_string()));
+    }
+
+    lines.push(Line::from(""));
+    lines
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {

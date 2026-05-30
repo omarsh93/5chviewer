@@ -3,6 +3,7 @@ mod app;
 mod types;
 mod ui;
 mod debug;
+mod image;
 
 use crate::types::{AppState, Screen};
 use color_eyre::Result;
@@ -53,6 +54,13 @@ fn main() -> Result<()> {
                     KeyCode::Left | KeyCode::Char('h') => {
                         state.exit_search();
                     }
+                    KeyCode::Char('f') => {
+                        if state.screen == Screen::BoardList {
+                            state.toggle_favorite();
+                        } else {
+                            state.search_push_char('f');
+                        }
+                    }
                     KeyCode::Char(c) if !c.is_control() => state.search_push_char(c),
                     _ => {}
                 }
@@ -93,7 +101,7 @@ fn main() -> Result<()> {
                         Screen::ThreadView => state.scroll_down(),
                         Screen::Compose => {}
                     },
-                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Backspace => {
+                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('B') | KeyCode::Backspace => {
                         state.go_back();
                     }
                     KeyCode::Char('f') => {
@@ -124,14 +132,9 @@ fn main() -> Result<()> {
                         Screen::Compose => {}
                     },
                     KeyCode::Char('r') => match state.screen {
-                        Screen::BoardList => state.load_boards(),
-                        Screen::ThreadList => state.load_threads(),
-                        Screen::ThreadView => {
-                            let tid = state.current_thread_id.clone();
-                            if let Some(id) = tid {
-                                state.load_posts(&id);
-                            }
-                        }
+                        Screen::BoardList => state.reload_boards(),
+                        Screen::ThreadList => state.reload_threads(),
+                        Screen::ThreadView => state.reload_posts(),
                         Screen::Compose => {}
                     },
                     KeyCode::Char('u') => {
