@@ -25,6 +25,9 @@ fn main() -> Result<()> {
     terminal.clear()?;
 
     let mut state = AppState::new();
+    state.load_config();
+    state.picker = Some(ratatui_image::picker::Picker::from_query_stdio()
+        .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks()));
     state.load_favorites();
     state.load_read_threads();
     state.load_boards();
@@ -86,7 +89,13 @@ fn main() -> Result<()> {
                         }
                     }
                     KeyCode::Enter => match state.screen {
-                        Screen::BoardList => state.select_board(),
+                        Screen::BoardList => {
+                            if state.selected_is_category_header() {
+                                state.toggle_category();
+                            } else {
+                                state.select_board();
+                            }
+                        }
                         Screen::ThreadList => state.select_thread(),
                         Screen::ThreadView => state.follow_reference(),
                         Screen::Compose => {}
@@ -104,21 +113,21 @@ fn main() -> Result<()> {
                     KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('B') | KeyCode::Backspace => {
                         state.go_back();
                     }
+                    KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        match state.screen {
+                            Screen::BoardList | Screen::ThreadList | Screen::ThreadView => {
+                                state.scroll_page_down()
+                            }
+                            Screen::Compose => {}
+                        }
+                    }
                     KeyCode::Char('f') => {
                         if state.screen == Screen::BoardList {
                             state.toggle_favorite();
                         }
                     }
-                    KeyCode::Char('g') => {
-                        if state.screen == Screen::ThreadView {
-                            state.scroll_to_top();
-                        }
-                    }
-                    KeyCode::Char('G') => {
-                        if state.screen == Screen::ThreadView {
-                            state.scroll_to_bottom();
-                        }
-                    }
+                    KeyCode::Char('g') => state.scroll_to_top(),
+                    KeyCode::Char('G') => state.scroll_to_bottom(),
                     KeyCode::PageDown | KeyCode::Char(' ') => match state.screen {
                         Screen::BoardList | Screen::ThreadList | Screen::ThreadView => {
                             state.scroll_page_down()
@@ -137,6 +146,11 @@ fn main() -> Result<()> {
                         Screen::ThreadView => state.reload_posts(),
                         Screen::Compose => {}
                     },
+                    KeyCode::Char('i') => {
+                        state.show_images = !state.show_images;
+                        state.image_cache.clear();
+                        state.save_config();
+                    }
                     KeyCode::Char('u') => {
                         if state.screen == Screen::ThreadView {
                             state.show_thread_url();

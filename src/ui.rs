@@ -1,10 +1,11 @@
-use crate::types::{AppState, Post, Screen};
-use crate::image;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use crate::image::{find_image_url, download_image};
+use crate::types::{AppState, BoardListItem, Screen};
+use ratatui::layout::{Constraint, Direction, Layout, Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::Frame;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui_image::{Image as ImageWidget, Resize};
 use regex_lite::Regex;
 use std::sync::OnceLock;
 
@@ -153,11 +154,20 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .collect()
     } else if !state.search_active {
         state
-            .boards
+            .board_list_items()
             .iter()
-            .map(|board| {
-                let star = if fav.contains(&board.url) { "★ " } else { "  " };
-                ListItem::new(format!("{}{}", star, board.name))
+            .map(|item| match item {
+                BoardListItem::CategoryHeader { name, board_count, .. } => {
+                    let collapsed = state.collapsed_categories.contains(name);
+                    let icon = if collapsed { " [+] " } else { " [-] " };
+                    ListItem::new(format!("{}{} ({}板)", icon, name, board_count))
+                        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                }
+                BoardListItem::Board(i) => {
+                    let board = &state.boards[*i];
+                    let star = if fav.contains(&board.url) { "★ " } else { "  " };
+                    ListItem::new(format!("{}  {}", star, board.name))
+                }
             })
             .collect()
     } else {
@@ -341,9 +351,75 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
         frame.render_widget(info_bar, chunks[0]);
 
         let content_width = chunks[1].width.saturating_sub(2);
+
+        // Pre-cache image protocols
+        if state.show_images {
+            if let Some(picker) = &state.picker {
+                for post in &state.posts {
+                    for line in post.body.lines() {
+                        if let Some(ref img_url) = find_image_url(line) {
+                            if !state.image_cache.contains_key(img_url) {
+                                if let Some(bytes) = download_image(img_url) {
+                                    if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+                                        let img_max_w = (content_width / 2).max(20);
+                                        let size = Size::new(img_max_w, img_max_w);
+                                        if let Ok(protocol) =
+                                            picker.new_protocol(dyn_img, size, Resize::Fit(None))
+                                        {
+                                            state.image_cache.insert(img_url.clone(), protocol);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut all_lines: Vec<Line<'static>> = Vec::new();
+        let mut image_positions: Vec<(usize, String)> = Vec::new();
         for (i, post) in state.posts.iter().enumerate() {
-            all_lines.extend(format_post(i + 1, post, content_width));
+            let id_str = match &post.id {
+                Some(id) => format!(" ID:{}", id),
+                None => String::new(),
+            };
+            let email_str = if post.email.is_empty() || post.email == "sage" {
+                String::new()
+            } else {
+                format!(" <{}>", post.email)
+            };
+            let header = format!(
+                "{}{} 名前:{} {} {}",
+                i + 1,
+                email_str,
+                post.name,
+                post.date,
+                id_str
+            );
+            let sep = "-".repeat(header.len().min(60));
+
+            all_lines.push(Line::from(sep));
+            all_lines.push(Line::from(header));
+
+            for body_line in post.body.lines() {
+                if state.show_images
+                    && let Some(ref img_url) = find_image_url(body_line)
+                    && state.image_cache.contains_key(img_url)
+                {
+                    let img_size = state.image_cache[img_url].size();
+                    all_lines.push(Line::from(""));
+                    image_positions.push((all_lines.len() - 1, img_url.clone()));
+                    // Add blank lines for image height
+                    for _ in 0..img_size.height.saturating_sub(1) {
+                        all_lines.push(Line::from(""));
+                    }
+                } else {
+                    all_lines.push(line_with_refs(body_line));
+                }
+            }
+
+            all_lines.push(Line::from(""));
         }
         state.visible_items = (chunks[1].height.saturating_sub(2)) as usize;
         let text = Text::from(all_lines);
@@ -359,6 +435,28 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .wrap(Wrap { trim: false });
 
         frame.render_widget(paragraph, chunks[1]);
+
+        // Render images on top (only if their line is within visible scroll range)
+        for (line_num, img_url) in &image_positions {
+            if *line_num as u16 >= state.scroll_offset as u16
+                && let Some(protocol) = state.image_cache.get(img_url)
+            {
+                let img_size = protocol.size();
+                let screen_y =
+                    chunks[1].y + 1 + *line_num as u16 - state.scroll_offset as u16;
+                let content_bottom = chunks[1].y + chunks[1].height;
+                if screen_y < content_bottom {
+                    let img_area = Rect::new(
+                        chunks[1].x + 1,
+                        screen_y,
+                        img_size.width.min(content_width),
+                        img_size.height,
+                    );
+                    let image_widget = ImageWidget::new(protocol);
+                    frame.render_widget(image_widget, img_area);
+                }
+            }
+        }
     }
 }
 
@@ -435,42 +533,6 @@ fn line_with_refs(line: &str) -> Line<'static> {
         spans.push(Span::raw(line.to_string()));
     }
     Line::from(spans)
-}
-
-fn format_post(num: usize, post: &Post, content_width: u16) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-
-    let id_str = match &post.id {
-        Some(id) => format!(" ID:{}", id),
-        None => String::new(),
-    };
-    let email_str = if post.email.is_empty() || post.email == "sage" {
-        String::new()
-    } else {
-        format!(" <{}>", post.email)
-    };
-    let header = format!("{}{} 名前:{} {} {}", num, email_str, post.name, post.date, id_str);
-    let sep = "-".repeat(header.len().min(60));
-
-    lines.push(Line::from(sep));
-    lines.push(Line::from(header));
-
-    for body_line in post.body.lines() {
-        /*
-        if let Some(img_url) = image::find_image_url(body_line)
-            && let Some(path) = image::download_image(&img_url)
-            && let Some(img_lines) = image::render_image(&path, content_width)
-        {
-            lines.extend(img_lines);
-        } else {
-            lines.push(Line::from(body_line.to_string()));
-        }
-        */
-        lines.push(line_with_refs(body_line));
-    }
-
-    lines.push(Line::from(""));
-    lines
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {

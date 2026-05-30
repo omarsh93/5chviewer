@@ -195,6 +195,7 @@ pub fn fetch_boards() -> Result<Vec<Board>, String> {
             .map(|c| Board {
                 name: c[2].trim().to_string(),
                 url: c[1].to_string(),
+                category: String::new(),
             })
             .collect();
 
@@ -218,8 +219,9 @@ pub fn fetch_boards() -> Result<Vec<Board>, String> {
             let url = cap[1].to_string();
             if !name.is_empty() && !name.starts_with('[') {
                 boards.push(Board {
-                    name: format!("[{}] {}", category, name),
+                    name,
                     url,
+                    category: category.clone(),
                 });
             }
         }
@@ -231,7 +233,7 @@ pub fn fetch_boards() -> Result<Vec<Board>, String> {
             let name = cap[2].trim().to_string();
             let url = cap[1].to_string();
             if !name.is_empty() && !name.starts_with('[') {
-                boards.push(Board { name, url });
+                boards.push(Board { name, url, category: String::new() });
             }
         }
     }

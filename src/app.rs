@@ -1,9 +1,13 @@
 use crate::api;
-use crate::types::{AppState, Board, Post, Screen, ThreadItem};
+use crate::types::{AppState, Board, BoardListItem, Post, Screen, ThreadItem};
+use std::collections::HashMap;
 
 impl AppState {
     fn map_selected_index(&self) -> usize {
-        if self.search_active && !self.search_matches.is_empty() {
+        if self.screen == Screen::BoardList {
+            self.board_list_mapped_index()
+                .unwrap_or(0)
+        } else if self.search_active && !self.search_matches.is_empty() {
             self.search_matches[self.selected_index.min(self.search_matches.len() - 1)]
         } else {
             self.selected_index
@@ -11,11 +15,13 @@ impl AppState {
     }
 
     fn item_count(&self) -> usize {
-        if self.search_active && !self.search_matches.is_empty() {
+        if self.screen == Screen::BoardList {
+            self.board_list_items().len()
+        } else if self.search_active && !self.search_matches.is_empty() {
             self.search_matches.len()
         } else {
             match self.screen {
-                Screen::BoardList => self.boards.len(),
+                Screen::BoardList => unreachable!(),
                 Screen::ThreadList => self.threads.len(),
                 Screen::ThreadView => self.posts.len(),
                 Screen::Compose => 0,
@@ -39,7 +45,7 @@ impl AppState {
                 .boards
                 .iter()
                 .enumerate()
-                .filter(|(_, b)| b.name.to_lowercase().contains(&q))
+                .filter(|(_, b)| b.name.to_lowercase().contains(&q) || b.category.to_lowercase().contains(&q))
                 .map(|(i, _)| i)
                 .collect(),
             Screen::ThreadList => self
@@ -72,8 +78,15 @@ impl AppState {
 
     pub fn exit_search(&mut self) {
         if self.search_active && !self.search_matches.is_empty() {
-            self.selected_index =
-                self.search_matches[self.selected_index.min(self.search_matches.len() - 1)];
+            let idx = self.search_matches[self.selected_index.min(self.search_matches.len() - 1)];
+            if self.screen == Screen::BoardList {
+                let items = self.board_list_items();
+                self.selected_index = items.iter().position(|item| {
+                    matches!(item, BoardListItem::Board(i) if *i == idx)
+                }).unwrap_or(0);
+            } else {
+                self.selected_index = idx;
+            }
         }
         self.search_active = false;
         self.search_query.clear();
@@ -91,6 +104,40 @@ impl AppState {
         self.search_query.pop();
         self.search_matches = self.compute_matches();
         self.selected_index = 0;
+    }
+
+    fn config_path() -> std::path::PathBuf {
+        Self::data_path().join("config")
+    }
+
+    pub fn load_config(&mut self) {
+        let path = Self::config_path();
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(eq) = line.find('=') {
+                let key = line[..eq].trim();
+                let val = line[eq + 1..].trim();
+                match key {
+                    "show_images" => self.show_images = val != "false",
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn save_config(&self) {
+        let dir = Self::data_path();
+        let _ = std::fs::create_dir_all(&dir);
+        let path = Self::config_path();
+        let content = format!("show_images={}\n", if self.show_images { "true" } else { "false" });
+        let _ = std::fs::write(&path, content);
     }
 
     fn data_path() -> std::path::PathBuf {
@@ -159,7 +206,7 @@ impl AppState {
     }
 
     pub fn toggle_favorite(&mut self) {
-        if self.boards.is_empty() {
+        if self.boards.is_empty() || self.selected_is_category_header() {
             return;
         }
         let idx = self.map_selected_index();
@@ -193,13 +240,86 @@ impl AppState {
         self.boards.sort_by(|a, b| {
             let a_fav = fav.contains(&a.url);
             let b_fav = fav.contains(&b.url);
-            b_fav.cmp(&a_fav).then(a.name.cmp(&b.name))
+            b_fav.cmp(&a_fav)
+                .then(a.category.cmp(&b.category))
+                .then(a.name.cmp(&b.name))
         });
         self.search_matches = self.compute_matches();
     }
 
+    pub fn board_list_items(&self) -> Vec<BoardListItem> {
+        let mut items: Vec<BoardListItem> = Vec::new();
+        let indices: Vec<usize> = if self.search_active && !self.search_matches.is_empty() {
+            self.search_matches.clone()
+        } else {
+            (0..self.boards.len()).collect()
+        };
+
+        let mut cat_indices: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut cat_order: Vec<&str> = Vec::new();
+        for &i in &indices {
+            let cat = self.boards[i].category.as_str();
+            if !cat_indices.contains_key(cat) {
+                cat_order.push(cat);
+            }
+            cat_indices.entry(cat).or_default().push(i);
+        }
+
+        for cat in cat_order {
+            let cat_indices = &cat_indices[cat];
+            items.push(BoardListItem::CategoryHeader {
+                name: cat.to_string(),
+                board_count: cat_indices.len(),
+            });
+            if !self.collapsed_categories.contains(cat) {
+                for &i in cat_indices {
+                    items.push(BoardListItem::Board(i));
+                }
+            }
+        }
+        items
+    }
+
+    fn board_list_mapped_index(&self) -> Option<usize> {
+        let items = self.board_list_items();
+        if self.selected_index >= items.len() {
+            return None;
+        }
+        match items[self.selected_index] {
+            BoardListItem::Board(i) => Some(i),
+            BoardListItem::CategoryHeader { .. } => None,
+        }
+    }
+
+    pub fn selected_is_category_header(&self) -> bool {
+        if self.search_active && !self.search_matches.is_empty() {
+            return false;
+        }
+        let items = self.board_list_items();
+        if self.selected_index >= items.len() {
+            return false;
+        }
+        matches!(items[self.selected_index], BoardListItem::CategoryHeader { .. })
+    }
+
+    pub fn toggle_category(&mut self) {
+        let items = self.board_list_items();
+        if self.selected_index >= items.len() {
+            return;
+        }
+        if let BoardListItem::CategoryHeader { ref name, .. } = items[self.selected_index] {
+            if !self.collapsed_categories.insert(name.clone()) {
+                self.collapsed_categories.remove(name);
+            }
+        }
+    }
+
     fn boards_cache_path() -> std::path::PathBuf {
         Self::favorites_path().join("boards")
+    }
+
+    fn collapse_all_categories(&mut self) {
+        self.collapsed_categories = self.boards.iter().map(|b| b.category.clone()).collect();
     }
 
     fn load_boards_from_cache(&mut self) -> bool {
@@ -214,16 +334,25 @@ impl AppState {
             if line.is_empty() {
                 continue;
             }
-            if let Some(sep) = line.find('|') {
+            let parts: Vec<&str> = line.splitn(3, '|').collect();
+            if parts.len() >= 3 {
+                let url = parts[0].to_string();
+                let name = parts[1].to_string();
+                let category = parts[2].to_string();
+                boards.push(Board { name, url, category });
+            } else if let Some(sep) = line.find('|') {
+                // backward compat: url|name (with [cat] prefix in name)
                 let url = line[..sep].to_string();
                 let name = line[sep + 1..].to_string();
-                boards.push(Board { name, url });
+                let (cat_name, pure_name) = parse_category_from_name(&name);
+                boards.push(Board { name: pure_name, url, category: cat_name });
             }
         }
         if boards.is_empty() {
             return false;
         }
         self.boards = boards;
+        self.collapse_all_categories();
         self.sort_boards_with_favorites();
         self.status_message = format!("{} 個の板を読み込みました", self.boards.len());
         true
@@ -235,7 +364,7 @@ impl AppState {
         let content: String = self
             .boards
             .iter()
-            .map(|b| format!("{}|{}", b.url, b.name))
+            .map(|b| format!("{}|{}|{}", b.url, b.name, b.category))
             .collect::<Vec<_>>()
             .join("\n");
         let _ = std::fs::write(&path, content);
@@ -258,6 +387,7 @@ impl AppState {
         match api::fetch_boards() {
             Ok(boards) => {
                 self.boards = boards;
+                self.collapse_all_categories();
                 self.sort_boards_with_favorites();
                 self.save_boards_cache();
                 self.status_message = format!("{} 個の板を読み込みました", self.boards.len());
@@ -270,7 +400,7 @@ impl AppState {
     }
 
     pub fn select_board(&mut self) {
-        if self.boards.is_empty() {
+        if self.boards.is_empty() || self.selected_is_category_header() {
             return;
         }
         let idx = self.map_selected_index();
@@ -631,13 +761,34 @@ impl AppState {
     }
 
     pub fn scroll_to_top(&mut self) {
-        self.scroll_offset = 0;
+        match self.screen {
+            Screen::BoardList | Screen::ThreadList => {
+                self.selected_index = 0;
+                self.list_offset = 0;
+            }
+            Screen::ThreadView => {
+                self.scroll_offset = 0;
+            }
+            Screen::Compose => {}
+        }
     }
 
     pub fn scroll_to_bottom(&mut self) {
-        if self.screen == crate::types::Screen::ThreadView {
-            let total_lines: usize = self.posts.iter().map(|p| p.body.lines().count() + 3).sum();
-            self.scroll_offset = total_lines.saturating_sub(1);
+        match self.screen {
+            Screen::BoardList | Screen::ThreadList => {
+                let len = self.item_count();
+                if len > 0 {
+                    self.selected_index = len - 1;
+                    if self.visible_items > 0 {
+                        self.list_offset = self.selected_index.saturating_sub(self.visible_items - 1);
+                    }
+                }
+            }
+            Screen::ThreadView => {
+                let total_lines: usize = self.posts.iter().map(|p| p.body.lines().count() + 3).sum();
+                self.scroll_offset = total_lines.saturating_sub(1);
+            }
+            Screen::Compose => {}
         }
     }
 
@@ -776,4 +927,15 @@ impl AppState {
             }
         }
     }
+}
+
+fn parse_category_from_name(name: &str) -> (String, String) {
+    if let Some(end) = name.find(']') {
+        if name.starts_with('[') {
+            let cat = name[1..end].trim();
+            let rest = name[end + 1..].trim();
+            return (cat.to_string(), rest.to_string());
+        }
+    }
+    (String::new(), name.to_string())
 }

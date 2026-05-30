@@ -1,7 +1,18 @@
+use ratatui_image::picker::Picker;
+use ratatui_image::protocol::Protocol;
+use std::collections::HashMap;
+
 #[derive(Debug, Clone)]
 pub struct Board {
     pub name: String,
     pub url: String,
+    pub category: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum BoardListItem {
+    CategoryHeader { name: String, board_count: usize },
+    Board(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +41,6 @@ pub enum Screen {
 
 use std::collections::HashSet;
 
-#[derive(Debug, Clone)]
 pub struct AppState {
     pub screen: Screen,
     pub boards: Vec<Board>,
@@ -56,6 +66,10 @@ pub struct AppState {
     pub compose_focus: usize,
     pub favorites: HashSet<String>,
     pub read_threads: HashSet<String>,
+    pub image_cache: HashMap<String, Protocol>,
+    pub picker: Option<Picker>,
+    pub show_images: bool,
+    pub collapsed_categories: HashSet<String>,
 }
 
 impl AppState {
@@ -85,6 +99,10 @@ impl AppState {
             compose_focus: 0,
             favorites: HashSet::new(),
             read_threads: HashSet::new(),
+            image_cache: HashMap::new(),
+            picker: None,
+            show_images: true,
+            collapsed_categories: HashSet::new(),
         }
     }
 }
