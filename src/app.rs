@@ -523,6 +523,50 @@ impl AppState {
         self.screen = Screen::ThreadView;
     }
 
+    fn calc_scroll_offset(&self, post_index: usize) -> usize {
+        let mut offset = 0;
+        for i in 0..post_index.min(self.posts.len()) {
+            offset += 3 + self.posts[i].body.lines().count();
+        }
+        offset
+    }
+
+    pub fn follow_reference(&mut self) {
+        if self.screen != Screen::ThreadView || self.posts.is_empty() {
+            return;
+        }
+        use regex_lite::Regex;
+        use std::sync::OnceLock;
+        static REF_RE: OnceLock<Regex> = OnceLock::new();
+        //let re = REF_RE.get_or_init(|| Regex::new(r">>(\d+)").unwrap());
+        let re = REF_RE.get_or_init(|| Regex::new(r"&gt;&gt;(\d+)").unwrap());
+
+        let mut line_count = 0;
+        for (_, post) in self.posts.iter().enumerate() {
+            let post_lines = 3 + post.body.lines().count();
+            if line_count + post_lines > self.scroll_offset {
+                for body_line in post.body.lines() {
+                    if let Some(cap) = re.captures(body_line) {
+                        let target: usize = cap[1].parse().unwrap_or(0);
+                        if target > 0 && target <= self.posts.len() {
+                            self.scroll_offset = self.calc_scroll_offset(target - 1);
+                            self.status_message = format!("#{} にジャンプしました", target);
+                            return;
+                        } else {
+                            self.status_message =
+                                format!("#{} は存在しません (全{}レス)", target, self.posts.len());
+                            return;
+                        }
+                    }
+                }
+                self.status_message = "このレスに参照はありません".to_string();
+                return;
+            }
+            line_count += post_lines;
+        }
+        self.status_message = "このレスに参照はありません".to_string();
+    }
+
     pub fn go_back(&mut self) {
         if self.search_active {
             self.exit_search();

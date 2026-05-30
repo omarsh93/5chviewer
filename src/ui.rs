@@ -3,9 +3,10 @@ use crate::image;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-//use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use regex_lite::Regex;
+use std::sync::OnceLock;
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
@@ -409,6 +410,33 @@ fn draw_compose(frame: &mut Frame, area: Rect, state: &mut AppState) {
     frame.render_widget(message_block, chunks[2]);
 }
 
+fn line_with_refs(line: &str) -> Line<'static> {
+    static REF_RE: OnceLock<Regex> = OnceLock::new();
+    //let re = REF_RE.get_or_init(|| Regex::new(r">>(\d+(?:-\d+)?)").unwrap());
+    let re = REF_RE.get_or_init(|| Regex::new(r"&gt;&gt;(\d+(?:-\d+)?)").unwrap());
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut last_end = 0;
+    for m in re.find_iter(line) {
+        if m.start() > last_end {
+            spans.push(Span::raw(line[last_end..m.start()].to_string()));
+        }
+        spans.push(Span::styled(
+            m.as_str().to_string(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::UNDERLINED),
+        ));
+        last_end = m.end();
+    }
+    if last_end < line.len() {
+        spans.push(Span::raw(line[last_end..].to_string()));
+    }
+    if spans.is_empty() {
+        spans.push(Span::raw(line.to_string()));
+    }
+    Line::from(spans)
+}
+
 fn format_post(num: usize, post: &Post, content_width: u16) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
@@ -438,7 +466,7 @@ fn format_post(num: usize, post: &Post, content_width: u16) -> Vec<Line<'static>
             lines.push(Line::from(body_line.to_string()));
         }
         */
-        lines.push(Line::from(body_line.to_string()));
+        lines.push(line_with_refs(body_line));
     }
 
     lines.push(Line::from(""));

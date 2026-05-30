@@ -88,7 +88,7 @@ fn main() -> Result<()> {
                     KeyCode::Enter => match state.screen {
                         Screen::BoardList => state.select_board(),
                         Screen::ThreadList => state.select_thread(),
-                        Screen::ThreadView => {}
+                        Screen::ThreadView => state.follow_reference(),
                         Screen::Compose => {}
                     },
                     KeyCode::Up | KeyCode::Char('k') => match state.screen {
