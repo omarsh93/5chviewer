@@ -143,6 +143,7 @@ fn main() -> Result<()> {
         }
     }
 
+    api::save_cookies();
     disable_raw_mode()?;
     let mut out = std::io::stdout();
     out.execute(LeaveAlternateScreen)?;

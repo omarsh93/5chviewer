@@ -97,7 +97,7 @@ impl AppState {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = std::path::PathBuf::from(home);
         path.push(".config");
-        path.push("5chviewer");
+        path.push("tano");
         path
     }
 
@@ -129,7 +129,7 @@ impl AppState {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = std::path::PathBuf::from(home);
         path.push(".config");
-        path.push("5chviewer");
+        path.push("tano");
         path
     }
 

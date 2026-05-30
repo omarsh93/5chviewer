@@ -1,11 +1,12 @@
 use crate::types::{Board, Post, ThreadItem};
+use cookie_store::CookieStore as CookieStoreStruct;
 use encoding_rs::SHIFT_JIS;
 use regex_lite::Regex;
-use reqwest::cookie::Jar;
 use reqwest::cookie::CookieStore;
+use reqwest::header::HeaderValue;
 use reqwest::Url;
 use std::io::Write;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use scraper::{Html, Selector};
 
 fn urlencode_sjis(s: &str) -> Vec<u8> {
@@ -37,9 +38,84 @@ fn hex_char(v: u8) -> u8 {
 
 const BBSMENU_URL: &str = "https://menu.5ch.io/bbsmenu.html";
 
-fn cookie_jar() -> &'static Arc<Jar> {
-    static JAR: OnceLock<Arc<Jar>> = OnceLock::new();
-    JAR.get_or_init(|| Arc::new(Jar::default()))
+fn cookie_jar_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let mut path = std::path::PathBuf::from(home);
+    path.push(".config");
+    path.push("tano");
+    path.push("cookies.json");
+    path
+}
+
+struct PersistentJar {
+    store: RwLock<CookieStoreStruct>,
+    path: std::path::PathBuf,
+}
+
+impl PersistentJar {
+    fn load(path: std::path::PathBuf) -> Self {
+        let store = if path.exists() {
+            std::fs::File::open(&path)
+                .ok()
+                .and_then(|f| {
+                    let reader = std::io::BufReader::new(f);
+                    cookie_store::serde::json::load(reader).ok()
+                })
+                .unwrap_or_default()
+        } else {
+            CookieStoreStruct::default()
+        };
+        PersistentJar { store: RwLock::new(store), path }
+    }
+
+    fn save(&self) {
+        let snapshot = self.store.read().ok().map(|s| s.clone());
+        if let Some(store) = snapshot {
+            if let Some(dir) = self.path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if let Ok(mut file) = std::fs::File::create(&self.path) {
+                let _ = cookie_store::serde::json::save(&store, &mut file);
+            }
+        }
+    }
+}
+
+impl CookieStore for PersistentJar {
+    fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
+        let iter = cookie_headers.filter_map(|val| {
+            val.to_str()
+                .ok()
+                .and_then(|s| cookie_store::RawCookie::parse(s).ok())
+                .map(|c: cookie_store::RawCookie<'_>| c.into_owned())
+        });
+        if let Ok(mut store) = self.store.write() {
+            store.store_response_cookies(iter, url);
+        }
+        self.save();
+    }
+
+    fn cookies(&self, url: &Url) -> Option<HeaderValue> {
+        let store = self.store.read().ok()?;
+        let s: String = store
+            .get_request_values(url)
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        if s.is_empty() {
+            return None;
+        }
+        HeaderValue::from_str(&s).ok()
+    }
+}
+
+fn cookie_jar() -> &'static Arc<PersistentJar> {
+    static JAR: OnceLock<Arc<PersistentJar>> = OnceLock::new();
+    JAR.get_or_init(|| Arc::new(PersistentJar::load(cookie_jar_path())))
+}
+
+pub fn save_cookies() {
+    cookie_jar().save();
 }
 
 fn fetch_client() -> &'static reqwest::blocking::Client {
@@ -359,7 +435,7 @@ fn post_with_headers(url: &str, host: &str, referer: &str, body: Vec<u8>, repost
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open("/tmp/5chviewer.log")
+            .open("/tmp/tano.log")
         {
             let status = resp.status();
             let _ = writeln!(f, "=== Response Headers (repost={}) ===", repost);
