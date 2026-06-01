@@ -5,8 +5,7 @@ use std::collections::HashMap;
 impl AppState {
     fn map_selected_index(&self) -> usize {
         if self.screen == Screen::BoardList {
-            self.board_list_mapped_index()
-                .unwrap_or(0)
+            self.board_list_mapped_index().unwrap_or(0)
         } else if self.search_active && !self.search_matches.is_empty() {
             self.search_matches[self.selected_index.min(self.search_matches.len() - 1)]
         } else {
@@ -45,7 +44,9 @@ impl AppState {
                 .boards
                 .iter()
                 .enumerate()
-                .filter(|(_, b)| b.name.to_lowercase().contains(&q) || b.category.to_lowercase().contains(&q))
+                .filter(|(_, b)| {
+                    b.name.to_lowercase().contains(&q) || b.category.to_lowercase().contains(&q)
+                })
                 .map(|(i, _)| i)
                 .collect(),
             Screen::ThreadList => self
@@ -81,9 +82,10 @@ impl AppState {
             let idx = self.search_matches[self.selected_index.min(self.search_matches.len() - 1)];
             if self.screen == Screen::BoardList {
                 let items = self.board_list_items();
-                self.selected_index = items.iter().position(|item| {
-                    matches!(item, BoardListItem::Board(i) if *i == idx)
-                }).unwrap_or(0);
+                self.selected_index = items
+                    .iter()
+                    .position(|item| matches!(item, BoardListItem::Board(i) if *i == idx))
+                    .unwrap_or(0);
             } else {
                 self.selected_index = idx;
             }
@@ -136,7 +138,10 @@ impl AppState {
         let dir = Self::data_path();
         let _ = std::fs::create_dir_all(&dir);
         let path = Self::config_path();
-        let content = format!("show_images={}\n", if self.show_images { "true" } else { "false" });
+        let content = format!(
+            "show_images={}\n",
+            if self.show_images { "true" } else { "false" }
+        );
         let _ = std::fs::write(&path, content);
     }
 
@@ -168,7 +173,12 @@ impl AppState {
             return;
         }
         let file = dir.join("read_threads");
-        let content = self.read_threads.iter().cloned().collect::<Vec<_>>().join("\n");
+        let content = self
+            .read_threads
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         let _ = std::fs::write(&file, content);
     }
 
@@ -201,7 +211,12 @@ impl AppState {
             return;
         }
         let file = dir.join("favorites");
-        let content = self.favorites.iter().cloned().collect::<Vec<_>>().join("\n");
+        let content = self
+            .favorites
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         let _ = std::fs::write(&file, content);
     }
 
@@ -219,7 +234,11 @@ impl AppState {
         self.sort_boards_with_favorites();
         self.selected_index = 0;
         self.list_offset = 0;
-        let status = if self.favorites.contains(&board_url) { "追加" } else { "解除" };
+        let status = if self.favorites.contains(&board_url) {
+            "追加"
+        } else {
+            "解除"
+        };
         self.status_message = format!("お気に入り{}: {}", status, board_name);
     }
 
@@ -240,7 +259,8 @@ impl AppState {
         self.boards.sort_by(|a, b| {
             let a_fav = fav.contains(&a.url);
             let b_fav = fav.contains(&b.url);
-            b_fav.cmp(&a_fav)
+            b_fav
+                .cmp(&a_fav)
                 .then(a.category.cmp(&b.category))
                 .then(a.name.cmp(&b.name))
         });
@@ -299,7 +319,10 @@ impl AppState {
         if self.selected_index >= items.len() {
             return false;
         }
-        matches!(items[self.selected_index], BoardListItem::CategoryHeader { .. })
+        matches!(
+            items[self.selected_index],
+            BoardListItem::CategoryHeader { .. }
+        )
     }
 
     pub fn toggle_category(&mut self) {
@@ -339,13 +362,21 @@ impl AppState {
                 let url = parts[0].to_string();
                 let name = parts[1].to_string();
                 let category = parts[2].to_string();
-                boards.push(Board { name, url, category });
+                boards.push(Board {
+                    name,
+                    url,
+                    category,
+                });
             } else if let Some(sep) = line.find('|') {
                 // backward compat: url|name (with [cat] prefix in name)
                 let url = line[..sep].to_string();
                 let name = line[sep + 1..].to_string();
                 let (cat_name, pure_name) = parse_category_from_name(&name);
-                boards.push(Board { name: pure_name, url, category: cat_name });
+                boards.push(Board {
+                    name: pure_name,
+                    url,
+                    category: cat_name,
+                });
             }
         }
         if boards.is_empty() {
@@ -411,9 +442,20 @@ impl AppState {
     }
 
     fn threads_cache_path(board_url: &str) -> std::path::PathBuf {
-        let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("unknown_host");
-        let board = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("unknown_board");
-        Self::favorites_path().join("threads").join(host).join(board)
+        let host = board_url
+            .trim_end_matches('/')
+            .split('/')
+            .nth(2)
+            .unwrap_or("unknown_host");
+        let board = board_url
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("unknown_board");
+        Self::favorites_path()
+            .join("threads")
+            .join(host)
+            .join(board)
     }
 
     fn load_threads_from_cache(&mut self) -> bool {
@@ -438,7 +480,11 @@ impl AppState {
                 if let Some(sep2) = rest.rfind('|') {
                     let title = rest[..sep2].to_string();
                     let count: u32 = rest[sep2 + 1..].parse().unwrap_or(0);
-                    threads.push(ThreadItem { id, title, post_count: count });
+                    threads.push(ThreadItem {
+                        id,
+                        title,
+                        post_count: count,
+                    });
                 }
             }
         }
@@ -515,7 +561,8 @@ impl AppState {
         let thread_id = self.threads[idx].id.clone();
         let thread_title = self.threads[idx].title.clone();
         if let Some(ref board_url) = self.current_board_url {
-            self.read_threads.insert(format!("{}|{}", board_url, thread_id));
+            self.read_threads
+                .insert(format!("{}|{}", board_url, thread_id));
             self.save_read_threads();
         }
         self.current_thread_title = Some(thread_title);
@@ -524,9 +571,21 @@ impl AppState {
     }
 
     fn posts_cache_path(board_url: &str, thread_id: &str) -> std::path::PathBuf {
-        let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("unknown_host");
-        let board = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("unknown_board");
-        Self::favorites_path().join("posts").join(host).join(board).join(thread_id)
+        let host = board_url
+            .trim_end_matches('/')
+            .split('/')
+            .nth(2)
+            .unwrap_or("unknown_host");
+        let board = board_url
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("unknown_board");
+        Self::favorites_path()
+            .join("posts")
+            .join(host)
+            .join(board)
+            .join(thread_id)
     }
 
     fn load_posts_from_cache(&mut self) -> bool {
@@ -563,7 +622,13 @@ impl AppState {
                 } else {
                     (date_id, None)
                 };
-                posts.push(Post { name, email, date, body, id });
+                posts.push(Post {
+                    name,
+                    email,
+                    date,
+                    body,
+                    id,
+                });
             }
         }
         if posts.is_empty() {
@@ -599,7 +664,7 @@ impl AppState {
                     None => String::new(),
                 };
                 let body = p.body.replace('\n', "<br>");
-                format!("{}<>{}<>{}<>{}{}", p.name, p.email, p.date, id_str, body)
+                format!("{}<>{}<>{}{}<>{}", p.name, p.email, p.date, id_str, body)
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -780,12 +845,14 @@ impl AppState {
                 if len > 0 {
                     self.selected_index = len - 1;
                     if self.visible_items > 0 {
-                        self.list_offset = self.selected_index.saturating_sub(self.visible_items - 1);
+                        self.list_offset =
+                            self.selected_index.saturating_sub(self.visible_items - 1);
                     }
                 }
             }
             Screen::ThreadView => {
-                let total_lines: usize = self.posts.iter().map(|p| p.body.lines().count() + 3).sum();
+                let total_lines: usize =
+                    self.posts.iter().map(|p| p.body.lines().count() + 3).sum();
                 self.scroll_offset = total_lines.saturating_sub(1);
             }
             Screen::Compose => {}
@@ -833,10 +900,23 @@ impl AppState {
     }
 
     pub fn show_thread_url(&mut self) {
-        if let (Some(board_url), Some(thread_id)) = (&self.current_board_url, &self.current_thread_id) {
-            let host = board_url.trim_end_matches('/').split('/').nth(2).unwrap_or("");
-            let board_name = board_url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-            self.status_message = format!("https://{}/test/read.cgi/{}/{}", host, board_name, thread_id);
+        if let (Some(board_url), Some(thread_id)) =
+            (&self.current_board_url, &self.current_thread_id)
+        {
+            let host = board_url
+                .trim_end_matches('/')
+                .split('/')
+                .nth(2)
+                .unwrap_or("");
+            let board_name = board_url
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or("");
+            self.status_message = format!(
+                "https://{}/test/read.cgi/{}/{}",
+                host, board_name, thread_id
+            );
         }
     }
 
@@ -873,9 +953,15 @@ impl AppState {
 
     pub fn compose_delete_char(&mut self) {
         match self.compose_focus {
-            0 => { self.compose_name.pop(); }
-            1 => { self.compose_email.pop(); }
-            2 => { self.compose_message.pop(); }
+            0 => {
+                self.compose_name.pop();
+            }
+            1 => {
+                self.compose_email.pop();
+            }
+            2 => {
+                self.compose_message.pop();
+            }
             _ => {}
         }
     }

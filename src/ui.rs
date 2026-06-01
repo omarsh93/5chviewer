@@ -1,9 +1,9 @@
-use crate::image::{find_image_url, download_image};
+use crate::image::{download_image, find_image_url};
 use crate::types::{AppState, BoardListItem, Screen};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::Frame;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui_image::{Image as ImageWidget, Resize};
 use regex_lite::Regex;
@@ -39,7 +39,11 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     } else {
         draw_main(frame, chunks[1], state);
     }
-    draw_status_bar(frame, chunks[if state.search_active { 3 } else { 2 }], state);
+    draw_status_bar(
+        frame,
+        chunks[if state.search_active { 3 } else { 2 }],
+        state,
+    );
 }
 
 fn draw_title_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
@@ -101,7 +105,9 @@ fn draw_search_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
 
     let bar = Paragraph::new(Line::from(Span::styled(
         info,
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     )))
     .style(Style::default().bg(Color::DarkGray));
     frame.render_widget(bar, area);
@@ -148,7 +154,11 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .iter()
             .map(|&i| {
                 let board = &state.boards[i];
-                let star = if fav.contains(&board.url) { "★ " } else { "  " };
+                let star = if fav.contains(&board.url) {
+                    "★ "
+                } else {
+                    "  "
+                };
                 ListItem::new(format!("{}{}", star, board.name))
             })
             .collect()
@@ -157,15 +167,24 @@ fn draw_board_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .board_list_items()
             .iter()
             .map(|item| match item {
-                BoardListItem::CategoryHeader { name, board_count, .. } => {
+                BoardListItem::CategoryHeader {
+                    name, board_count, ..
+                } => {
                     let collapsed = state.collapsed_categories.contains(name);
                     let icon = if collapsed { " [+] " } else { " [-] " };
-                    ListItem::new(format!("{}{} ({}板)", icon, name, board_count))
-                        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    ListItem::new(format!("{}{} ({}板)", icon, name, board_count)).style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 }
                 BoardListItem::Board(i) => {
                     let board = &state.boards[*i];
-                    let star = if fav.contains(&board.url) { "★ " } else { "  " };
+                    let star = if fav.contains(&board.url) {
+                        "★ "
+                    } else {
+                        "  "
+                    };
                     ListItem::new(format!("{}  {}", star, board.name))
                 }
             })
@@ -274,7 +293,6 @@ fn draw_thread_list(frame: &mut Frame, area: Rect, state: &mut AppState) {
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-
 fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if state.posts.is_empty() {
         let empty = Paragraph::new("レスがありません。'r' で再読み込み")
@@ -316,7 +334,10 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 let preview = if first_line.chars().count() > area.width as usize - 10 {
                     format!(
                         "{}...",
-                        first_line.chars().take(area.width as usize - 13).collect::<String>()
+                        first_line
+                            .chars()
+                            .take(area.width as usize - 13)
+                            .collect::<String>()
                     )
                 } else {
                     first_line.to_string()
@@ -389,18 +410,34 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
             } else {
                 format!(" <{}>", post.email)
             };
-            let header = format!(
+            let header = Line::from(vec![
+                // レスNo.
+                Span::raw(format!("{} ", i + 1)),
+                // 名前欄
+                Span::styled("名前:", Style::default().fg(Color::Green)),
+                //Span::raw(format!(" {}", post.name)),
+                Span::styled(format!(" {}", post.name), Style::default().fg(Color::Green)),
+                // メルアド
+                Span::raw(format!("{}", email_str)),
+                // 日付
+                Span::raw(format!(" {}", post.date)),
+                // ID
+                Span::raw(format!(" {}", id_str)),
+            ]);
+            let sep_len = format!(
                 "{}{} 名前:{} {} {}",
                 i + 1,
                 email_str,
                 post.name,
                 post.date,
                 id_str
-            );
-            let sep = "-".repeat(header.len().min(60));
+            )
+            .len()
+            .min(60);
+            let sep = "-".repeat(sep_len);
 
             all_lines.push(Line::from(sep));
-            all_lines.push(Line::from(header));
+            all_lines.push(header);
 
             for body_line in post.body.lines() {
                 if state.show_images
@@ -442,8 +479,7 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 && let Some(protocol) = state.image_cache.get(img_url)
             {
                 let img_size = protocol.size();
-                let screen_y =
-                    chunks[1].y + 1 + *line_num as u16 - state.scroll_offset as u16;
+                let screen_y = chunks[1].y + 1 + *line_num as u16 - state.scroll_offset as u16;
                 let content_bottom = chunks[1].y + chunks[1].height;
                 if screen_y < content_bottom {
                     let img_area = Rect::new(
@@ -478,12 +514,19 @@ fn draw_compose(frame: &mut Frame, area: Rect, state: &mut AppState) {
         }
     };
 
-    let name_text = format!(" 名前: {} ", state.compose_name);
-    let name_bar = Paragraph::new(Line::from(Span::styled(
-        name_text,
-        field_style(state.compose_focus == 0),
-    )))
-    .block(Block::default().borders(Borders::ALL).title("名前"));
+    let name_bar = Paragraph::new(Line::from(vec![
+        Span::styled(" 名前: ", Style::default().fg(Color::Green)),
+        Span::styled(
+            state.compose_name.clone(),
+            field_style(state.compose_focus == 0),
+        ),
+        Span::styled(" ", field_style(state.compose_focus == 0)),
+    ]))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled("名前", Style::default().fg(Color::Green))),
+    );
     frame.render_widget(name_bar, chunks[0]);
 
     let email_text = format!(" メール: {} ", state.compose_email);
@@ -549,9 +592,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
             Screen::ThreadView => {
                 " ↑↓:スクロール | /:検索 | ←:戻る | r:再読み込み | w:書き込み | q:終了 "
             }
-            Screen::Compose => {
-                " Tab:項目移動 | Ctrl+S:送信 | Esc:キャンセル "
-            }
+            Screen::Compose => " Tab:項目移動 | Ctrl+S:送信 | Esc:キャンセル ",
         }
     };
 

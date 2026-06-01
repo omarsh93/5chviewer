@@ -1,14 +1,13 @@
+use crate::debug;
 use crate::types::{Board, Post, ThreadItem};
 use cookie_store::CookieStore as CookieStoreStruct;
 use encoding_rs::SHIFT_JIS;
 use regex_lite::Regex;
+use reqwest::Url;
 use reqwest::cookie::CookieStore;
 use reqwest::header::HeaderValue;
-use reqwest::Url;
-use std::io::Write;
-use std::sync::{Arc, OnceLock, RwLock};
 use scraper::{Html, Selector};
-use crate::debug;
+use std::sync::{Arc, OnceLock, RwLock};
 
 fn urlencode_sjis(s: &str) -> Vec<u8> {
     let (encoded, _, _) = SHIFT_JIS.encode(s);
@@ -66,7 +65,10 @@ impl PersistentJar {
         } else {
             CookieStoreStruct::default()
         };
-        PersistentJar { store: RwLock::new(store), path }
+        PersistentJar {
+            store: RwLock::new(store),
+            path,
+        }
     }
 
     fn save(&self) {
@@ -137,7 +139,9 @@ fn post_client() -> &'static reqwest::blocking::Client {
     CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
-            .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0")
+            .user_agent(
+                "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0",
+            )
             .cookie_provider(cookie_jar().clone())
             .build()
             .expect("Failed to create HTTP client")
@@ -172,7 +176,9 @@ pub fn fetch_boards() -> Result<Vec<Board>, String> {
     // <a href=URL>板名</a><br>
     let cat_re = Regex::new(r"(?i)<br>\s*<b>(.*?)</b>\s*<br>").unwrap();
     //let board_re = Regex::new(r#"(?i)<a\s+href="(https?://[^"]+\.5ch\.io/[^"]*)"[^>]*>(.*?)</a>"#).unwrap();
-    let board_re = Regex::new(r#"(?i)<a\s+href=(https?://[0-9a-z]+\.5ch\.io/[0-9a-z]+/)>([^<]*?)</a>"#).unwrap();
+    let board_re =
+        Regex::new(r#"(?i)<a\s+href=(https?://[0-9a-z]+\.5ch\.io/[0-9a-z]+/)>([^<]*?)</a>"#)
+            .unwrap();
 
     // Find all category positions
     let mut cat_positions: Vec<(usize, String)> = cat_re
@@ -233,7 +239,11 @@ pub fn fetch_boards() -> Result<Vec<Board>, String> {
             let name = cap[2].trim().to_string();
             let url = cap[1].to_string();
             if !name.is_empty() && !name.starts_with('[') {
-                boards.push(Board { name, url, category: String::new() });
+                boards.push(Board {
+                    name,
+                    url,
+                    category: String::new(),
+                });
             }
         }
     }
@@ -301,7 +311,8 @@ pub fn fetch_posts(board_url: &str, thread_id: &str) -> Result<Vec<Post>, String
             let name = parts[0].trim().to_string();
             let email = parts[1].trim().to_string();
             let date_id = parts[2].trim().to_string();
-            let body = parts[3..].join("<>");
+            //let body = parts[3..].join("<>");
+            let body = parts[3].trim().to_string();
 
             let body = body.replace("<br>", "\n");
 
@@ -326,7 +337,13 @@ pub fn fetch_posts(board_url: &str, thread_id: &str) -> Result<Vec<Post>, String
     Ok(posts)
 }
 
-pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, message: &str) -> Result<(), String> {
+pub fn post_message(
+    board_url: &str,
+    thread_id: &str,
+    name: &str,
+    email: &str,
+    message: &str,
+) -> Result<(), String> {
     let host = board_url
         .trim_end_matches('/')
         .split('/')
@@ -366,14 +383,18 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
     let resp = post_with_headers(&url, &host, &referer, body, false)?;
 
     let status = resp.status();
-    if ! status.is_success() {
-        let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+    if !status.is_success() {
+        let bytes = resp
+            .bytes()
+            .map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
         let text = decode_sjis(&bytes);
         let error_msg = extract_error(&text, status);
         return Err(error_msg);
     }
 
-    let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+    let bytes = resp
+        .bytes()
+        .map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
     let text = decode_sjis(&bytes);
     let title = extract_title(&text);
 
@@ -394,7 +415,9 @@ pub fn post_message(board_url: &str, thread_id: &str, name: &str, email: &str, m
         if status.is_redirection() || status.is_success() {
             return Ok(());
         }
-        let bytes = resp.bytes().map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
+        let bytes = resp
+            .bytes()
+            .map_err(|e| format!("レスポンス読み取りエラー: {}", e))?;
         let text = decode_sjis(&bytes);
         let error_msg = extract_error(&text, status);
         return Err(error_msg);
@@ -417,10 +440,19 @@ fn encode_body(pairs: &[(&str, &str)]) -> Vec<u8> {
     body
 }
 
-fn post_with_headers(url: &str, host: &str, referer: &str, body: Vec<u8>, repost: bool) -> Result<reqwest::blocking::Response, String> {
+fn post_with_headers(
+    url: &str,
+    host: &str,
+    referer: &str,
+    body: Vec<u8>,
+    repost: bool,
+) -> Result<reqwest::blocking::Response, String> {
     let resp = post_client()
         .post(url)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Origin", &format!("https://{}", host))
