@@ -126,6 +126,16 @@ fn main() -> Result<()> {
                             state.toggle_favorite();
                         }
                     }
+                    KeyCode::Tab => {
+                        if state.screen == Screen::ThreadView {
+                            state.next_reference();
+                        }
+                    }
+                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if state.screen == Screen::ThreadView {
+                            state.prev_reference();
+                        }
+                    }
                     KeyCode::Char('g') => state.scroll_to_top(),
                     KeyCode::Char('G') => state.scroll_to_bottom(),
                     KeyCode::PageDown | KeyCode::Char(' ') => match state.screen {

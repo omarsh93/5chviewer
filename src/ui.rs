@@ -590,7 +590,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 " ↑↓:移動 | Enter:スレを開く | /:検索 | r:再読み込み | ←:戻る | q:終了 "
             }
             Screen::ThreadView => {
-                " ↑↓:スクロール | /:検索 | ←:戻る | r:再読み込み | w:書き込み | q:終了 "
+                " ↑↓:スクロール | Tab:次参照 | Ctrl+U:前参照 | /:検索 | Enter:参照ジャンプ | ←:戻る | r:再読み込み | w:書き込み | q:終了 "
             }
             Screen::Compose => " Tab:項目移動 | Ctrl+S:送信 | Esc:キャンセル ",
         }

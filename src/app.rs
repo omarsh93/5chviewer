@@ -762,6 +762,68 @@ impl AppState {
         self.status_message = "このレスに参照はありません".to_string();
     }
 
+    pub fn next_reference(&mut self) {
+        if self.screen != Screen::ThreadView || self.posts.is_empty() {
+            return;
+        }
+        use regex_lite::Regex;
+        use std::sync::OnceLock;
+        static REF_RE: OnceLock<Regex> = OnceLock::new();
+        let re = REF_RE.get_or_init(|| Regex::new(r"&gt;&gt;(\d+)").unwrap());
+
+        let mut line_count = 0;
+        let current_idx = 'search: {
+            for (i, post) in self.posts.iter().enumerate() {
+                let post_lines = 3 + post.body.lines().count();
+                if line_count + post_lines > self.scroll_offset {
+                    break 'search i;
+                }
+                line_count += post_lines;
+            }
+            self.posts.len().saturating_sub(1)
+        };
+
+        for i in (current_idx + 1)..self.posts.len() {
+            if re.is_match(&self.posts[i].body) {
+                self.scroll_offset = self.calc_scroll_offset(i);
+                self.status_message = format!("#{} に参照があります", i + 1);
+                return;
+            }
+        }
+        self.status_message = "次の参照はありません".to_string();
+    }
+
+    pub fn prev_reference(&mut self) {
+        if self.screen != Screen::ThreadView || self.posts.is_empty() {
+            return;
+        }
+        use regex_lite::Regex;
+        use std::sync::OnceLock;
+        static REF_RE: OnceLock<Regex> = OnceLock::new();
+        let re = REF_RE.get_or_init(|| Regex::new(r"&gt;&gt;(\d+)").unwrap());
+
+        let mut line_count = 0;
+        let current_idx = 'search: {
+            for (i, post) in self.posts.iter().enumerate() {
+                let post_lines = 3 + post.body.lines().count();
+                if line_count + post_lines > self.scroll_offset {
+                    break 'search i;
+                }
+                line_count += post_lines;
+            }
+            self.posts.len().saturating_sub(1)
+        };
+
+        for i in (0..current_idx).rev() {
+            if re.is_match(&self.posts[i].body) {
+                self.scroll_offset = self.calc_scroll_offset(i);
+                self.status_message = format!("#{} に参照があります", i + 1);
+                return;
+            }
+        }
+        self.status_message = "前の参照はありません".to_string();
+    }
+
     pub fn go_back(&mut self) {
         if self.search_active {
             self.exit_search();
