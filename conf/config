@@ -1,0 +1,6 @@
+# Proxy
+proxy_read=http://example.com:8080/
+proxy_write=http://example.com:8080/
+
+# Image
+show_images=true

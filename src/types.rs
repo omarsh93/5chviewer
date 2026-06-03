@@ -70,6 +70,8 @@ pub struct AppState {
     pub picker: Option<Picker>,
     pub show_images: bool,
     pub collapsed_categories: HashSet<String>,
+    pub proxy_read: Option<String>,
+    pub proxy_write: Option<String>,
 }
 
 impl AppState {
@@ -103,6 +105,8 @@ impl AppState {
             picker: None,
             show_images: true,
             collapsed_categories: HashSet::new(),
+            proxy_read: None,
+            proxy_write: None,
         }
     }
 }

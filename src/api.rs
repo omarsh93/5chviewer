@@ -29,6 +29,18 @@ fn urlencode_sjis(s: &str) -> Vec<u8> {
     result
 }
 
+fn ensure_proxy_scheme(url: &str) -> String {
+    if url.contains("://") { url.to_string() } else { format!("http://{}", url) }
+}
+
+static PROXY_READ: OnceLock<Option<String>> = OnceLock::new();
+static PROXY_WRITE: OnceLock<Option<String>> = OnceLock::new();
+
+pub fn set_proxy(read: Option<String>, write: Option<String>) {
+    let _ = PROXY_READ.set(read);
+    let _ = PROXY_WRITE.set(write);
+}
+
 fn hex_char(v: u8) -> u8 {
     match v {
         0..=9 => b'0' + v,
@@ -124,12 +136,17 @@ pub fn save_cookies() {
 fn fetch_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
+        let mut builder = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .user_agent("Mozilla/5.0 (X11; Linux x86_64)")
-            .cookie_provider(cookie_jar().clone())
-            .build()
-            .expect("Failed to create HTTP client")
+            .cookie_provider(cookie_jar().clone());
+        if let Some(proxy_url) = PROXY_READ.get().and_then(|o| o.as_ref()) {
+            let proxy_url = ensure_proxy_scheme(proxy_url);
+            if let Ok(p) = reqwest::Proxy::all(&proxy_url) {
+                builder = builder.proxy(p);
+            }
+        }
+        builder.build().expect("Failed to create HTTP client")
     })
 }
 
@@ -137,14 +154,19 @@ fn post_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     //.redirect(reqwest::redirect::Policy::none())
     CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
+        let mut builder = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .user_agent(
                 "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0",
             )
-            .cookie_provider(cookie_jar().clone())
-            .build()
-            .expect("Failed to create HTTP client")
+            .cookie_provider(cookie_jar().clone());
+        if let Some(proxy_url) = PROXY_WRITE.get().and_then(|o| o.as_ref()) {
+            let proxy_url = ensure_proxy_scheme(proxy_url);
+            if let Ok(p) = reqwest::Proxy::all(&proxy_url) {
+                builder = builder.proxy(p);
+            }
+        }
+        builder.build().expect("Failed to create HTTP client")
     })
 }
 

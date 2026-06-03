@@ -26,6 +26,7 @@ fn main() -> Result<()> {
 
     let mut state = AppState::new();
     state.load_config();
+    api::set_proxy(state.proxy_read.clone(), state.proxy_write.clone());
     state.picker = Some(ratatui_image::picker::Picker::from_query_stdio()
         .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks()));
     state.load_favorites();

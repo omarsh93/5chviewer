@@ -128,6 +128,8 @@ impl AppState {
                 let val = line[eq + 1..].trim();
                 match key {
                     "show_images" => self.show_images = val != "false",
+                    "proxy_read" => self.proxy_read = Some(val.to_string()),
+                    "proxy_write" => self.proxy_write = Some(val.to_string()),
                     _ => {}
                 }
             }
@@ -138,10 +140,16 @@ impl AppState {
         let dir = Self::data_path();
         let _ = std::fs::create_dir_all(&dir);
         let path = Self::config_path();
-        let content = format!(
+        let mut content = format!(
             "show_images={}\n",
             if self.show_images { "true" } else { "false" }
         );
+        if let Some(ref p) = self.proxy_read {
+            content.push_str(&format!("proxy_read={}\n", p));
+        }
+        if let Some(ref p) = self.proxy_write {
+            content.push_str(&format!("proxy_write={}\n", p));
+        }
         let _ = std::fs::write(&path, content);
     }
 
