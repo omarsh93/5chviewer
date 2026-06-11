@@ -473,13 +473,14 @@ fn draw_thread_view(frame: &mut Frame, area: Rect, state: &mut AppState) {
 
         frame.render_widget(paragraph, chunks[1]);
 
-        // Render images on top (only if their line is within visible scroll range)
+        // Render images on top (scrolling naturally with text)
         for (line_num, img_url) in &image_positions {
-            if *line_num as u16 >= state.scroll_offset as u16
-                && let Some(protocol) = state.image_cache.get(img_url)
+            if let Some(protocol) = state.image_cache.get(img_url)
+                && *line_num + protocol.size().height as usize > state.scroll_offset
             {
                 let img_size = protocol.size();
-                let screen_y = chunks[1].y + 1 + *line_num as u16 - state.scroll_offset as u16;
+                let screen_y = (chunks[1].y as i32 + 1 + *line_num as i32 - state.scroll_offset as i32)
+                    .max(chunks[1].y as i32 + 1) as u16;
                 let content_bottom = chunks[1].y + chunks[1].height;
                 if screen_y < content_bottom {
                     let img_area = Rect::new(
